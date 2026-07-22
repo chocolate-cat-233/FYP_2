@@ -82,6 +82,9 @@ namespace HeatSystem
         /// <summary>当前是否正在输送热量</summary>
         public bool IsFlowing => isFlowing;
 
+        /// <summary>下游线路是否就绪（断路点全连接 + 有下游节点），供泵节点检查</summary>
+        public bool IsReadyToFlow => AllBreakPointsConnected() && acceptor != null;
+
         /// <summary>上游提供者</summary>
         public HeatProvider Provider => provider;
 

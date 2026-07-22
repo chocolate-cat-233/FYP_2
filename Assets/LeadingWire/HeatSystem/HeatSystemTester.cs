@@ -83,44 +83,55 @@ namespace HeatSystem
 
             bool sourceOutputting = testSource.IsOutputting;
             bool lineFlowing = sourceLine.IsFlowing;
+            bool nodePrimed = repeaterNode.IsPrimed;
             bool nodeOutputting = repeaterNode.IsOutputting;
 
             LogResult("热源输出", sourceOutputting, true);
-            LogResult("热管流动（所有断路点未修复 → 应阻断）", lineFlowing, false);
-            LogResult("节点输出（输入未到 → 应无输出）", nodeOutputting, false);
+            LogResult("热管流动（所有断路点未连接 → 应阻断）", lineFlowing, false);
+            LogResult("节点蓄能（输入未到 → 待机）", nodePrimed, false);
+            LogResult("节点输出", nodeOutputting, false);
 
-            if (lineFlowing) Debug.LogError("  ⚠ 断路点未修复但热管却在流动！检查逻辑。");
-            if (nodeOutputting) Debug.LogError("  ⚠ 输入未到但节点却有输出！检查逻辑。");
+            if (lineFlowing) Debug.LogError("  ⚠ 断路点未连接但热管却在流动！");
+            if (nodePrimed) Debug.LogError("  ⚠ 输入未到但节点已蓄能！");
 
-            // Step 2: 逐个修复断路点
+            // Step 2: 逐个连接断路点
             if (bpCount > 0)
             {
-                Debug.Log("\n── Step 2: 修复断路点 ──");
+                Debug.Log("\n── Step 2: 连接断路点 ──");
                 for (int i = 0; i < breakPoints.Length; i++)
                 {
                     breakPoints[i].Connect();
                     yield return null;
-                    Debug.Log($"  修复第 {i + 1} 个断路点后 → 热管流动={sourceLine.IsFlowing}, " +
-                              $"节点输出={repeaterNode.IsOutputting}");
+                    Debug.Log($"  连接第 {i + 1} 断路点 → 热管流动={sourceLine.IsFlowing}, " +
+                              $"节点蓄能={repeaterNode.IsPrimed}");
                 }
             }
             else
             {
                 Debug.Log("\n── Step 2: 无断路点 ──");
-                Debug.Log("  热管应直接流通（Provider已输出 + 无断路点）");
                 yield return null;
             }
 
-            // Step 3: 验证连通
-            Debug.Log("\n── Step 3: 验证连通 ──");
+            // Step 3: 验证蓄能 + 玩家交互激活
+            Debug.Log("\n── Step 3: 交互激活 ──");
             yield return null;
             LogResult("热管流动", sourceLine.IsFlowing, true);
-            LogResult("节点输出", repeaterNode.IsOutputting, true);
+            LogResult("节点蓄能（输入满足 → 等待交互）", repeaterNode.IsPrimed, true);
 
             if (!sourceLine.IsFlowing)
-                Debug.LogError("  ⚠ 所有断路点已修复但热管不流动！");
+                Debug.LogError("  ⚠ 所有断路点已连接但热管不流动！");
+            if (!repeaterNode.IsPrimed)
+                Debug.LogError("  ⚠ 热管流动但节点未蓄能！");
+
+            Debug.Log("  模拟玩家交互...");
+            bool activated = repeaterNode.Interact();
+            yield return null;
+
+            LogResult("节点激活成功", activated, true);
+            LogResult("节点输出（激活后→应有输出）", repeaterNode.IsOutputting, true);
+
             if (!repeaterNode.IsOutputting)
-                Debug.LogError("  ⚠ 热管流动但中继器节点不输出！");
+                Debug.LogError("  ⚠ 交互后节点无输出！");
 
             // Step 4: 验证输出热管也被触发
             if (outputLine != null)
@@ -131,27 +142,28 @@ namespace HeatSystem
                     Debug.LogError("  ⚠ 节点有输出但下游输出热管不流动！（检查 outputLine 的 provider 是否指向 repeaterNode）");
             }
 
-            // Step 5: 断开测试 — 重置断路点
+            // Step 5: 断开测试 — 移除连接
             if (bpCount > 0)
             {
-                Debug.Log("\n── Step 5: 断开验证（重置断路点）──");
+                Debug.Log("\n── Step 5: 断开验证 ──");
                 var bp = breakPoints[0];
                 bp.Disconnect();
                 yield return null;
 
                 LogResult("热管流动（断路后→应阻断）", sourceLine.IsFlowing, false);
-                LogResult("节点输出（输入断后→应无输出）", repeaterNode.IsOutputting, false);
+                LogResult("节点输出（输入断后→掉电）", repeaterNode.IsOutputting, false);
 
                 if (sourceLine.IsFlowing)
-                    Debug.LogError("  ⚠ 断路点已重置但热管仍在流动！");
+                    Debug.LogError("  ⚠ 断路点已断开但热管仍在流动！");
                 if (repeaterNode.IsOutputting)
-                    Debug.LogError("  ⚠ 输入断开但节点仍有输出！");
+                    Debug.LogError("  ⚠ 输入断开但节点仍有输出！（检查 Evaluate 中的掉电逻辑）");
 
                 // 恢复
                 bp.Connect();
                 yield return null;
-                Debug.Log("  恢复断路点 → 热管应重新流动");
+                Debug.Log("  恢复断路点 → 热管应重新流动，节点重新蓄能");
                 LogResult("热管恢复流动", sourceLine.IsFlowing, true);
+                LogResult("节点重新蓄能", repeaterNode.IsPrimed, true);
             }
 
             Debug.Log("\n══════════════════════════════════════");
@@ -190,36 +202,44 @@ namespace HeatSystem
             foreach (var bp in bp2) bp.Disconnect();
             yield return null;
 
-            Debug.Log("\n── 只修复第一条线的断路点 ──");
+            Debug.Log("\n── 只连接第一条线的断路点 ──");
             foreach (var bp in bp1) bp.Connect();
             yield return null;
 
             LogResult("Line1 流动", andGateLine1.IsFlowing, true);
-            LogResult("Line2 流动（未修复→应阻断）", andGateLine2.IsFlowing, false);
-            LogResult("与门输出（只有1/2 → 应无输出）", andGateNode.IsOutputting, false);
+            LogResult("Line2 流动（未连接→应阻断）", andGateLine2.IsFlowing, false);
+            LogResult("与门蓄能（只有1/2 → 不应蓄能）", andGateNode.IsPrimed, false);
 
-            if (andGateNode.IsOutputting)
-                Debug.LogError("  ⚠ 与门只有1条输入却有输出！");
+            if (andGateNode.IsPrimed)
+                Debug.LogError("  ⚠ 与门只有1条输入却已蓄能！");
 
-            Debug.Log("\n── 再修复第二条线的断路点 ──");
+            Debug.Log("\n── 再连接第二条线的断路点 + 交互激活 ──");
             foreach (var bp in bp2) bp.Connect();
             yield return null;
 
             LogResult("Line1 流动", andGateLine1.IsFlowing, true);
             LogResult("Line2 流动", andGateLine2.IsFlowing, true);
-            LogResult("与门输出（2/2 → 应有输出）", andGateNode.IsOutputting, true);
+            LogResult("与门蓄能（2/2 → 等待交互）", andGateNode.IsPrimed, true);
+
+            if (!andGateNode.IsPrimed)
+                Debug.LogError("  ⚠ 与门全部输入就绪但未蓄能！");
+
+            bool andActivated = andGateNode.Interact();
+            yield return null;
+            LogResult("与门交互激活", andActivated, true);
+            LogResult("与门输出", andGateNode.IsOutputting, true);
 
             if (!andGateNode.IsOutputting)
-                Debug.LogError("  ⚠ 与门全部输入就绪但无输出！");
+                Debug.LogError("  ⚠ 与门交互后无输出！");
 
             Debug.Log("\n── 断开其中一条线 ──");
             bp1[0].Disconnect();
             yield return null;
 
-            LogResult("与门输出（断开1条→应无输出）", andGateNode.IsOutputting, false);
+            LogResult("与门输出（断开1条→掉电）", andGateNode.IsOutputting, false);
 
             if (andGateNode.IsOutputting)
-                Debug.LogError("  ⚠ 与门输入已断开但仍有输出！");
+                Debug.LogError("  ⚠ 与门输入已断开但仍有输出！（检查 Evaluate 掉电逻辑）");
 
             // 恢复
             bp1[0].Connect();
