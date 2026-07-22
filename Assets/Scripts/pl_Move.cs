@@ -4,10 +4,12 @@ public sealed class pl_Move : MonoBehaviour
 {
     private const string GroundTag = "Ground";
     private const float InputDeadZone = 0.0001f;
+    private const float RayOriginOffset = 0.001f;
 
     [Header("References")]
     [SerializeField] private InputManager inputManager;
     [SerializeField] private Transform cameraTransform;
+    [SerializeField] private CapsuleCollider playerCollider;
 
     [Header("Movement")]
     [Min(0f)]
@@ -24,6 +26,13 @@ public sealed class pl_Move : MonoBehaviour
     [SerializeField] private float playerHeight = 2f;
     [Min(0f)]
     [SerializeField] private float groundSnapDistance = 0.2f;
+    [Min(0f)]
+    [SerializeField] private float skin = 0.02f;
+    [Min(0f)]
+    [SerializeField] private float stepOffset = 0.3f;
+
+    [Header("Wall Check")]
+    [SerializeField] private LayerMask wallMask;
 
     private float currentMoveSpeed;
     private float verticalVelocity;
@@ -36,6 +45,11 @@ public sealed class pl_Move : MonoBehaviour
 
     private void OnEnable()
     {
+        if (playerCollider == null)
+        {
+            playerCollider = GetComponent<CapsuleCollider>();
+        }
+
         if (!ValidateConfiguration())
         {
             enabled = false;
@@ -141,7 +155,33 @@ public sealed class pl_Move : MonoBehaviour
     {
         Vector3 horizontalVelocity = lastMoveDirection * currentMoveSpeed;
         Vector3 velocity = horizontalVelocity + Vector3.up * verticalVelocity;
+
+        float movementDistance = velocity.magnitude * deltaTime;
+        float wallDetectionDistance = movementDistance + GetPlayerWorldRadius();
+
+        if (movementDistance > InputDeadZone &&
+            Physics.Raycast(
+                transform.position,
+                velocity,
+                out RaycastHit wallHit,
+                wallDetectionDistance,
+                wallMask,
+                QueryTriggerInteraction.Ignore))
+        {
+            velocity = ProjectOnPlane(velocity, wallHit.normal);
+        }
+
         transform.position += velocity * deltaTime;
+    }
+
+    private float GetPlayerWorldRadius()
+    {
+        Vector3 colliderScale = playerCollider.transform.lossyScale;
+        float horizontalScale = Mathf.Max(
+            Mathf.Abs(colliderScale.x),
+            Mathf.Abs(colliderScale.z));
+
+        return playerCollider.radius * horizontalScale;
     }
 
     private void SnapOnGround()
@@ -150,17 +190,17 @@ public sealed class pl_Move : MonoBehaviour
         {
             groundNormal = raycastHit.normal;
             float groundHeight = raycastHit.point.y + playerHeight / 2f;
-            float heightAboveGround = transform.position.y - groundHeight;
-            bool reachedGround = heightAboveGround <= 0f;
+            float bottomDistance = transform.position.y - groundHeight;
+            bool reachedGround = bottomDistance <= skin;
             bool canSnapDownSlope = IsGrounded &&
-                                    heightAboveGround <= groundSnapDistance;
+                                    bottomDistance <= groundSnapDistance;
 
             if (reachedGround || canSnapDownSlope)
             {
                 IsGrounded = true;
                 transform.position = new Vector3(
                     transform.position.x,
-                    groundHeight,
+                    groundHeight - skin,
                     transform.position.z);
             }
             else
@@ -177,7 +217,11 @@ public sealed class pl_Move : MonoBehaviour
 
     private bool TryGetGroundHit(out RaycastHit groundHit)
     {
-        Vector3 rayOrigin = transform.position + new Vector3(0f, 1000f, 0f);
+        float currentGroundHeight = transform.position.y - playerHeight / 2f + skin;
+        Vector3 rayOrigin = new Vector3(
+            transform.position.x,
+            currentGroundHeight + stepOffset + RayOriginOffset,
+            transform.position.z);
         int hitCount = Physics.RaycastNonAlloc(
             rayOrigin,
             Vector3.down,
@@ -234,6 +278,17 @@ public sealed class pl_Move : MonoBehaviour
             return LogConfigurationError("requires a camera Transform reference.");
         }
 
+        if (playerCollider == null)
+        {
+            return LogConfigurationError("requires a CapsuleCollider reference.");
+        }
+
+        if (playerCollider.direction != 1)
+        {
+            return LogConfigurationError(
+                "requires the CapsuleCollider Direction to be Y-Axis.");
+        }
+
         Vector3 cameraForward = Vector3.ProjectOnPlane(
             cameraTransform.forward,
             Vector3.up);
@@ -253,7 +308,10 @@ public sealed class pl_Move : MonoBehaviour
             decelerationTime <= 0f ||
             maxTurnSpeed < 0f ||
             playerHeight <= 0f ||
-            groundSnapDistance < 0f)
+            groundSnapDistance < 0f ||
+            skin < 0f ||
+            skin >= playerHeight / 2f ||
+            stepOffset < 0f)
         {
             return LogConfigurationError("has one or more invalid movement settings.");
         }
