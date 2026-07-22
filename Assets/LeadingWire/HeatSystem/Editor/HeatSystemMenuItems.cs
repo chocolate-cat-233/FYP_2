@@ -101,7 +101,16 @@ namespace HeatSystem.Editor
             Selection.activeGameObject = go;
         }
 
-        [MenuItem(MENU_ROOT + "可推箱子 (Pushable Box)", false, 16)]
+        [MenuItem(MENU_ROOT + "碎石障碍 (Breakable Debris)", false, 16)]
+        private static void CreateBreakableDebris()
+        {
+            GameObject go = CreateBaseObject("BreakableDebris", typeof(BreakableDebris));
+            go.name = "碎石";
+            go.transform.localScale = Vector3.one * 0.5f;
+            Selection.activeGameObject = go;
+        }
+
+        [MenuItem(MENU_ROOT + "可推箱子 (Pushable Box)", false, 17)]
         private static void CreatePushableBox()
         {
             Selection.activeGameObject = CreatePushableBoxStatic();

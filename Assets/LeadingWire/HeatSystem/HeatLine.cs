@@ -69,6 +69,9 @@ namespace HeatSystem
         // 该热管下的所有断路点
         private BreakPoint[] breakPoints;
 
+        // 该热管上的碎石障碍物
+        private BreakableDebris[] debrisList;
+
         // 当前是否正在输送热量
         private bool isFlowing = false;
 
@@ -100,6 +103,11 @@ namespace HeatSystem
         {
             // 扫描子物体中的断路点（包含未激活的物体）
             breakPoints = GetComponentsInChildren<BreakPoint>(true);
+
+            // 扫描子物体中的碎石障碍物
+            debrisList = GetComponentsInChildren<BreakableDebris>(true);
+            // 自动关联碎石到最近的管线段
+            AutoLinkDebris();
 
             // 初始化管线段：先尝试使用手动放置的子物体，否则自动生成
             InitializeSegments();
@@ -443,10 +451,13 @@ namespace HeatSystem
                 segments[i].SetEnergizing();
                 yield return new WaitForSeconds(energizingDuration);
 
-                // 2. 红色 — 稳定能量
+                // 2. 炸碎该段的碎石障碍物
+                ExplodeDebrisAtSegment(i);
+
+                // 3. 红色 — 稳定能量
                 segments[i].SetEnergized();
 
-                // 3. 等待下一段
+                // 4. 等待下一段
                 if (i < segments.Count - 1)
                     yield return new WaitForSeconds(cascadeDelay);
             }
@@ -483,9 +494,90 @@ namespace HeatSystem
             }
         }
 
+        #endregion
+
+        #region Debris (碎石)
+
+        /// <summary>
+        /// 自动将碎石关联到最近的管线段。
+        /// </summary>
+        private void AutoLinkDebris()
+        {
+            if (debrisList == null || debrisList.Length == 0) return;
+
+            foreach (var debris in debrisList)
+            {
+                if (debris == null) continue;
+                if (debris.LinkedSegmentIndex >= 0) continue; // 已手动指定
+
+                // 找最近的管线段
+                float bestDist = float.MaxValue;
+                int bestIdx = 0;
+                for (int i = 0; i < segments.Count; i++)
+                {
+                    float dist = Vector3.Distance(debris.transform.position, segments[i].transform.position);
+                    if (dist < bestDist)
+                    {
+                        bestDist = dist;
+                        bestIdx = i;
+                    }
+                }
+                // 使用 reflection 或 SerializedObject 设置私有字段
+                // 简单处理：在 debris 添加到子物体时已通过 Inspector 或代码设定
+                // 这里只做日志
+                if (bestDist < debris.TriggerRadius && segments.Count > 0)
+                {
+                    Debug.Log($"[热管: {name}] 碎石 [{debris.name}] 最近段=Seg[{bestIdx}] 距离={bestDist:F2}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 引爆指定管线段附近的所有碎石。
+        /// </summary>
+        private void ExplodeDebrisAtSegment(int segmentIndex)
+        {
+            if (debrisList == null || debrisList.Length == 0) return;
+            if (segmentIndex < 0 || segmentIndex >= segments.Count) return;
+
+            Vector3 segPos = segments[segmentIndex].transform.position;
+
+            foreach (var debris in debrisList)
+            {
+                if (debris == null || debris.HasExploded) continue;
+
+                // 判断是否应该引爆
+                bool shouldExplode = false;
+
+                if (debris.LinkedSegmentIndex == segmentIndex)
+                {
+                    shouldExplode = true;
+                }
+                else if (debris.LinkedSegmentIndex < 0)
+                {
+                    // 自动模式：距离判断
+                    float dist = Vector3.Distance(debris.transform.position, segPos);
+                    if (dist < debris.TriggerRadius)
+                        shouldExplode = true;
+                }
+
+                if (shouldExplode)
+                    debris.Explode();
+            }
+        }
+
         /// <summary>
         /// 在编辑器中重建管线段（用于手动触发重新放置）。
         /// </summary>
+        [ContextMenu("测试引爆全部碎石")]
+        private void TestExplodeAllDebris()
+        {
+            if (debrisList == null) return;
+            foreach (var d in debrisList)
+                if (d != null && !d.HasExploded)
+                    d.Explode();
+        }
+
         [ContextMenu("重建管线段")]
         private void RebuildSegments()
         {
