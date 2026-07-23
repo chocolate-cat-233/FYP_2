@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 public sealed class pl_Move : MonoBehaviour
@@ -8,6 +9,7 @@ public sealed class pl_Move : MonoBehaviour
 
     [Header("References")]
     [SerializeField] private InputManager inputManager;
+    [SerializeField] private pl_stateManager stateManager;
     [SerializeField] private Transform cameraTransform;
     [SerializeField] private CapsuleCollider playerCollider;
 
@@ -39,9 +41,15 @@ public sealed class pl_Move : MonoBehaviour
     private Vector3 lastMoveDirection = Vector3.forward;
     private Vector3 groundNormal = Vector3.up;
     private bool isMovementReady;
+    private bool isMovingToTarget;
+    private bool canPlayerControlMovement = true;
+    private Vector3 moveTarget;
     private readonly RaycastHit[] groundHitBuffer = new RaycastHit[32];
 
     public bool IsGrounded { get; private set; }
+    public bool IsMovingToTarget => isMovingToTarget;
+
+    public event Action<Vector3> MovementApplied;
 
     private void OnEnable()
     {
@@ -60,15 +68,25 @@ public sealed class pl_Move : MonoBehaviour
         verticalVelocity = 0f;
         groundNormal = Vector3.up;
         IsGrounded = false;
+        isMovingToTarget = false;
         isMovementReady = true;
+
+        stateManager.StateChanged += OnPlayerStateChanged;
+        ApplyPlayerState(stateManager.CurrentState);
     }
 
     private void OnDisable()
     {
+        if (stateManager != null)
+        {
+            stateManager.StateChanged -= OnPlayerStateChanged;
+        }
+
         currentMoveSpeed = 0f;
         verticalVelocity = 0f;
         groundNormal = Vector3.up;
         IsGrounded = false;
+        isMovingToTarget = false;
         isMovementReady = false;
     }
 
@@ -80,12 +98,72 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         float deltaTime = Time.deltaTime;
-        Vector2 moveInput = Vector2.ClampMagnitude(inputManager.MoveInput, 1f);
+
+        if (isMovingToTarget)
+        {
+            UpdateMoveToTarget(deltaTime);
+            return;
+        }
+
+        Vector2 moveInput = canPlayerControlMovement
+            ? Vector2.ClampMagnitude(inputManager.MoveInput, 1f)
+            : Vector2.zero;
+
+        Vector3 positionBeforeMovement = transform.position;
 
         UpdateHorizontalMovement(moveInput, deltaTime);
         UpdateVerticalVelocity(deltaTime);
         ApplyMovement(deltaTime);
         SnapOnGround();
+
+        Vector3 appliedMovement = transform.position - positionBeforeMovement;
+        appliedMovement.y = 0f;
+
+        if (appliedMovement.sqrMagnitude > InputDeadZone * InputDeadZone)
+        {
+            MovementApplied?.Invoke(appliedMovement);
+        }
+    }
+
+    public void MoveToTarget(Vector3 targetPosition)
+    {
+        moveTarget = targetPosition;
+        isMovingToTarget = true;
+        currentMoveSpeed = 0f;
+        verticalVelocity = 0f;
+    }
+
+    public void CancelMoveToTarget()
+    {
+        isMovingToTarget = false;
+        currentMoveSpeed = 0f;
+    }
+
+    private void UpdateMoveToTarget(float deltaTime)
+    {
+        Vector3 horizontalTarget = new Vector3(
+            moveTarget.x,
+            transform.position.y,
+            moveTarget.z);
+
+        transform.position = Vector3.MoveTowards(
+            transform.position,
+            horizontalTarget,
+            maxMoveSpeed * 0.5f * deltaTime);
+
+        UpdateVerticalVelocity(deltaTime);
+        transform.position += Vector3.up * verticalVelocity * deltaTime;
+        SnapOnGround();
+
+        Vector3 horizontalDistance = new Vector3(
+            transform.position.x - moveTarget.x,
+            0f,
+            transform.position.z - moveTarget.z);
+
+        if (horizontalDistance.sqrMagnitude <= InputDeadZone * InputDeadZone)
+        {
+            isMovingToTarget = false;
+        }
     }
 
     private void UpdateHorizontalMovement(Vector2 moveInput, float deltaTime)
@@ -266,11 +344,39 @@ public sealed class pl_Move : MonoBehaviour
         return velocity - dot * normal;
     }
 
+    private void OnPlayerStateChanged(PlayerState playerState)
+    {
+        ApplyPlayerState(playerState);
+    }
+
+    private void ApplyPlayerState(PlayerState playerState)
+    {
+        if (playerState == null)
+        {
+            return;
+        }
+
+        canPlayerControlMovement = playerState.CanPlayerControlMovement;
+        maxMoveSpeed = playerState.MaxMoveSpeed;
+        stepOffset = playerState.MaxStepOffset;
+
+        if (!canPlayerControlMovement && !isMovingToTarget)
+        {
+            currentMoveSpeed = 0f;
+        }
+    }
+
     private bool ValidateConfiguration()
     {
         if (inputManager == null)
         {
             return LogConfigurationError("requires an InputManager reference.");
+        }
+
+        if (stateManager == null)
+        {
+            return LogConfigurationError(
+                $"requires a {nameof(pl_stateManager)} reference.");
         }
 
         if (cameraTransform == null)
