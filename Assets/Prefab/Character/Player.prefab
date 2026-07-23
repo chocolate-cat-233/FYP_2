@@ -139,7 +139,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 4.67, y: 8.18, z: -7.6766934}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 0.5, y: 0.5, z: 0.5}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 6780274557363565275}
@@ -235,12 +235,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   inputManager: {fileID: 475101219704549856}
   cameraTransform: {fileID: 0}
-  playerCollider: {fileID: 0}
+  playerCollider: {fileID: 7820222200135427694}
   maxMoveSpeed: 5
   accelerationTime: 0.7
   decelerationTime: 0.15
   maxTurnSpeed: 360
-  playerHeight: 2
+  playerHeight: 1
   groundSnapDistance: 0.2
   skin: 0.02
   stepOffset: 0.3
