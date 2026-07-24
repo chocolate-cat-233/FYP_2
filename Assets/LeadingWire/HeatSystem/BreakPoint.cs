@@ -23,6 +23,9 @@ namespace HeatSystem
         private float directionTolerance = 0.9f;
 
         [Header("状态")]
+        [SerializeField, Tooltip("编辑器中预设：开始时已连接")]
+        private bool startConnected = false;
+
         [SerializeField, Tooltip("当前是否已连接（调试只读）")]
         private bool isConnected = false;
 
@@ -47,6 +50,9 @@ namespace HeatSystem
 
         // 当前保持连接的箱子（离开时断开）
         private PushableBox connectedBox;
+
+        /// <summary>当前连接的箱子（公开只读）</summary>
+        public PushableBox ConnectedBox => connectedBox;
         // 已连接箱子的 trigger collider 重叠计数（箱子可能有多个 trigger）
         private int connectedBoxOverlapCount = 0;
 
@@ -60,6 +66,7 @@ namespace HeatSystem
 
         private void Start()
         {
+            if (startConnected) Connect();
             UpdateVisuals();
         }
 
@@ -67,7 +74,8 @@ namespace HeatSystem
 
         private void OnTriggerEnter(Collider other)
         {
-            PushableBox box = other.GetComponent<PushableBox>();
+            PushableBox box = other.GetComponent<PushableBox>()
+                              ?? other.GetComponentInParent<PushableBox>();
             if (box == null) return;
 
             // 如果是已连接的箱子，增加重叠计数
@@ -105,7 +113,8 @@ namespace HeatSystem
 
         private void OnTriggerExit(Collider other)
         {
-            PushableBox box = other.GetComponent<PushableBox>();
+            PushableBox box = other.GetComponent<PushableBox>()
+                              ?? other.GetComponentInParent<PushableBox>();
             if (box == null) return;
 
             if (box == connectedBox)
@@ -159,7 +168,11 @@ namespace HeatSystem
         private void UpdateVisuals()
         {
             if (targetRenderer == null)
+            {
                 targetRenderer = GetComponent<MeshRenderer>();
+                if (targetRenderer == null)
+                    targetRenderer = GetComponentInChildren<MeshRenderer>();
+            }
             if (targetRenderer == null) return;
 
             targetRenderer.material.color = isConnected ? connectedColor : disconnectedColor;

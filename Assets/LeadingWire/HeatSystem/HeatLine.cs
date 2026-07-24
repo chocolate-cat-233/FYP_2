@@ -30,6 +30,10 @@ namespace HeatSystem
         [SerializeField, Tooltip("热量停止流动时触发")]
         private UnityEvent onHeatStopFlowing;
 
+        [Header("路径拐点")]
+        [SerializeField, Tooltip("管线拐弯路径点（按顺序排列）")]
+        private Transform[] waypoints;
+
         [Header("视觉反馈")]
         [SerializeField, Tooltip("用于显示状态的 MeshRenderer")]
         private MeshRenderer targetRenderer;
@@ -40,7 +44,10 @@ namespace HeatSystem
         [SerializeField, Tooltip("爆炸后的颜色（橙色）")]
         private Color explodedColor = new Color(1f, 0.5f, 0f);
 
-        [SerializeField, Tooltip("无热量的默认颜色")]
+        [SerializeField, Tooltip("已连通等待引爆的颜色（蓝色）")]
+        private Color readyColor = new Color(0.2f, 0.5f, 1f);
+
+        [SerializeField, Tooltip("无热量未连通（灰色）")]
         private Color defaultColor = new Color(0.3f, 0.3f, 0.3f);
 
         [Header("管线段（逐节点亮）")]
@@ -145,6 +152,8 @@ namespace HeatSystem
             Evaluate();
             // 初始化所有线段为关闭状态
             SetAllSegmentsState(SegmentState.Off);
+            // 根据初始状态更新颜色（例如预连接断点 → 蓝）
+            UpdateVisuals();
         }
 
         #endregion
@@ -157,14 +166,16 @@ namespace HeatSystem
         private void OnProviderChanged()
         {
             Evaluate();
+            UpdateVisuals();
         }
 
         /// <summary>
-        /// 断路点修复状态变化回调
+        /// 断路点连接状态变化回调（线可能从灰→蓝，即使没流动）
         /// </summary>
         private void OnBreakPointChanged()
         {
             Evaluate();
+            UpdateVisuals();
         }
 
         /// <summary>
@@ -276,14 +287,17 @@ namespace HeatSystem
         /// <summary>
         /// 更新材质颜色：
         /// 红色 = 有能量正在流动
-        /// 橙色 = 曾经爆炸过，但现在无能量流
-        /// 灰色 = 从未流过热量
+        /// 橙色 = 曾经爆炸过，无能量流
+        /// 蓝色 = 已连通，等待引爆（未爆过）
+        /// 灰色 = 未连通
         /// </summary>
         private void UpdateVisuals()
         {
             if (targetRenderer == null)
             {
                 targetRenderer = GetComponent<MeshRenderer>();
+                if (targetRenderer == null)
+                    targetRenderer = GetComponentInChildren<MeshRenderer>();
             }
             if (targetRenderer == null) return;
 
@@ -291,8 +305,10 @@ namespace HeatSystem
                 targetRenderer.material.color = energizedColor;  // 红 — 有能量
             else if (hasExploded)
                 targetRenderer.material.color = explodedColor;   // 橙 — 爆炸后
+            else if (IsReadyToFlow)
+                targetRenderer.material.color = readyColor;      // 蓝 — 连通，待引爆
             else
-                targetRenderer.material.color = defaultColor;    // 灰 — 无热量
+                targetRenderer.material.color = defaultColor;    // 灰 — 未连通
         }
 
         #endregion
@@ -384,26 +400,43 @@ namespace HeatSystem
         }
 
         /// <summary>
+        /// 构建完整路径点列表: Provider → waypoints → Acceptor
+        /// </summary>
+        private List<Vector3> BuildPathPoints()
+        {
+            var pts = new List<Vector3>();
+            if (provider != null) pts.Add(provider.transform.position);
+            if (waypoints != null)
+                foreach (var wp in waypoints)
+                    if (wp != null) pts.Add(wp.position);
+            if (acceptor != null) pts.Add(acceptor.transform.position);
+
+            // 至少需要两个点
+            if (pts.Count < 2)
+            {
+                if (pts.Count == 0) pts.Add(transform.position - Vector3.forward);
+                pts.Add(transform.position + Vector3.forward);
+            }
+            return pts;
+        }
+
+        /// <summary>
         /// 沿路径放置各线段的位置和朝向。
-        /// 路径: Provider → HeatLine(本物体) → Acceptor
         /// </summary>
         private void PositionSegments()
         {
             if (segments.Count == 0) return;
 
-            Vector3 start = provider != null ? provider.transform.position : transform.position - Vector3.forward;
-            Vector3 mid = transform.position;
-            Vector3 end = acceptor != null ? acceptor.transform.position : transform.position + Vector3.forward;
+            var path = BuildPathPoints();
 
             for (int i = 0; i < segments.Count; i++)
             {
                 float t = segments.Count == 1 ? 0.5f : (float)i / (segments.Count - 1);
-                Vector3 pos = GetPointOnPath(start, mid, end, t);
+                Vector3 pos = GetPointOnPath(path, t);
                 segments[i].transform.position = pos;
 
-                // 朝向：指向路径前方
                 float lookT = Mathf.Min(t + 0.01f, 1f);
-                Vector3 lookTarget = GetPointOnPath(start, mid, end, lookT);
+                Vector3 lookTarget = GetPointOnPath(path, lookT);
                 Vector3 dir = (lookTarget - pos).normalized;
                 if (dir.magnitude > 0.001f)
                     segments[i].transform.forward = dir;
@@ -411,28 +444,34 @@ namespace HeatSystem
         }
 
         /// <summary>
-        /// 在 start → mid → end 的折线上根据 t(0~1) 获取点位置。
+        /// 在多段折线上根据 t(0~1) 获取点。
         /// </summary>
-        private Vector3 GetPointOnPath(Vector3 start, Vector3 mid, Vector3 end, float t)
+        private Vector3 GetPointOnPath(List<Vector3> pts, float t)
         {
-            float distToMid = Vector3.Distance(start, mid);
-            float distToEnd = Vector3.Distance(mid, end);
-            float totalDist = distToMid + distToEnd;
+            if (pts.Count < 2) return pts.Count > 0 ? pts[0] : Vector3.zero;
 
-            if (totalDist < 0.001f) return mid;
-
-            float targetDist = t * totalDist;
-
-            if (targetDist <= distToMid)
+            // 计算总长度和各段长度
+            float totalLen = 0f;
+            var segLens = new float[pts.Count - 1];
+            for (int i = 0; i < pts.Count - 1; i++)
             {
-                float segT = distToMid > 0.001f ? targetDist / distToMid : 0f;
-                return Vector3.Lerp(start, mid, segT);
+                segLens[i] = Vector3.Distance(pts[i], pts[i + 1]);
+                totalLen += segLens[i];
             }
-            else
+            if (totalLen < 0.001f) return pts[0];
+
+            float target = t * totalLen;
+            float accum = 0f;
+            for (int i = 0; i < segLens.Length; i++)
             {
-                float segT = distToEnd > 0.001f ? (targetDist - distToMid) / distToEnd : 0f;
-                return Vector3.Lerp(mid, end, segT);
+                if (target <= accum + segLens[i])
+                {
+                    float segT = segLens[i] > 0.001f ? (target - accum) / segLens[i] : 0f;
+                    return Vector3.Lerp(pts[i], pts[i + 1], segT);
+                }
+                accum += segLens[i];
             }
+            return pts[pts.Count - 1];
         }
 
         /// <summary>
@@ -578,6 +617,27 @@ namespace HeatSystem
                     d.Explode();
         }
 
+        [ContextMenu("➕ 添加拐点子物体")]
+        private void AddWaypointChild()
+        {
+            int idx = waypoints != null ? waypoints.Length : 0;
+            var go = new GameObject($"Waypoint_{idx}");
+            go.transform.SetParent(transform);
+            go.transform.localPosition = Vector3.zero;
+#if UNITY_EDITOR
+            UnityEditor.Undo.RegisterCreatedObjectUndo(go, "Add Waypoint");
+            // 添加到数组
+            var so = new UnityEditor.SerializedObject(this);
+            var wpProp = so.FindProperty("waypoints");
+            wpProp.InsertArrayElementAtIndex(wpProp.arraySize);
+            var elem = wpProp.GetArrayElementAtIndex(wpProp.arraySize - 1);
+            elem.objectReferenceValue = go.transform;
+            so.ApplyModifiedProperties();
+            UnityEditor.Selection.activeGameObject = go;
+#endif
+            GenerateSegments();
+        }
+
         [ContextMenu("重建管线段")]
         private void RebuildSegments()
         {
@@ -601,22 +661,25 @@ namespace HeatSystem
 
         private void OnDrawGizmosSelected()
         {
-            if (provider == null || acceptor == null) return;
+            var path = BuildPathPoints();
+            if (path.Count < 2) return;
 
-            // 画线连接 provider → 本热管中间点 → acceptor
-            Vector3 start = provider.transform.position;
-            Vector3 mid = transform.position;
-            Vector3 end = acceptor.transform.position;
+            // 根据状态选色
+            Color lineColor;
+            if (isFlowing) lineColor = Color.red;
+            else if (hasExploded) lineColor = new Color(1f, 0.5f, 0f);
+            else if (IsReadyToFlow) lineColor = new Color(0.2f, 0.5f, 1f);
+            else lineColor = Color.gray;
 
-            // 根据热流状态选择颜色
-            Color lineColor = isFlowing ? Color.red : Color.gray;
             Gizmos.color = lineColor;
+            for (int i = 0; i < path.Count - 1; i++)
+                Gizmos.DrawLine(path[i], path[i + 1]);
 
-            Gizmos.DrawLine(start, mid);
-            Gizmos.DrawLine(mid, end);
-
-            // 在中间位置画一个小球代表热管本身
-            Gizmos.DrawSphere(mid, 0.15f);
+            // 拐点小球
+            for (int i = 0; i < path.Count; i++)
+            {
+                Gizmos.DrawSphere(path[i], 0.1f);
+            }
 
             // 断路点标记
             if (breakPoints != null)
@@ -629,9 +692,10 @@ namespace HeatSystem
                 }
             }
 
-            // 标签
+            // 标签在路径中点
+            var mid = GetPointOnPath(path, 0.5f);
             UnityEditor.Handles.color = lineColor;
-            string status = isFlowing ? "🔥 FLOWING" : "⬛ BLOCKED";
+            string status = isFlowing ? "🔥 FLOWING" : (hasExploded ? "🟠 EXPLODED" : (IsReadyToFlow ? "🔵 READY" : "⬛ BLOCKED"));
             UnityEditor.Handles.Label(mid + Vector3.up * 0.3f, $"{name}\n{status}");
         }
 #endif
