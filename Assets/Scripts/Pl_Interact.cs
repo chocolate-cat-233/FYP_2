@@ -201,6 +201,7 @@ public class Pl_Interact : MonoBehaviour
         }
 
         activeMovable = movable;
+        activeMovable.SetCanMove(true);
         isMovingMovable = true;
         playerMovement.MovementApplied += MoveActiveMovable;
     }
@@ -242,6 +243,11 @@ public class Pl_Interact : MonoBehaviour
         bool restoreState = isMovingMovable &&
                             stateManager != null &&
                             stateManager.CurrentState == movablePlayerState;
+
+        if (activeMovable != null)
+        {
+            activeMovable.SetCanMove(false);
+        }
 
         isMovingMovable = false;
         activeMovable = null;
