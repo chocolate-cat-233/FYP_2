@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -118,17 +118,20 @@ public class Pl_Interact : MonoBehaviour
             return;
         }
 
-        int movableLayer = LayerMask.NameToLayer("Movable");
+   
 
         foreach (Collider interactable in nearbyInteractables)
         {
-            if (interactable == null ||
-                interactable.gameObject.layer != movableLayer)
+            if ( interactable.gameObject.layer == LayerMask.NameToLayer("Movable"))
             {
-                continue;
+                HandleMovable(interactable.gameObject);
+            }
+            if (interactable.gameObject.layer == LayerMask.NameToLayer("Pump"))
+            {
+                HandlePump(interactable.gameObject);
             }
 
-            HandleMovable(interactable.gameObject);
+
             return;
         }
     }
@@ -159,6 +162,12 @@ public class Pl_Interact : MonoBehaviour
         moveToStandPointRoutine = StartCoroutine(
             MoveToStandPoint(movable, standPoint.position));
     }
+
+    protected void HandlePump(GameObject target)
+    {
+
+    }
+ 
 
     private IEnumerator MoveToStandPoint(
         Movable movable,
