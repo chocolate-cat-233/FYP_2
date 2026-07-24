@@ -35,6 +35,7 @@ public sealed class pl_Move : MonoBehaviour
 
     [Header("Wall Check")]
     [SerializeField] private LayerMask wallMask;
+    [SerializeField] private LayerMask movableMask;
 
     private float currentMoveSpeed;
     private float verticalVelocity;
@@ -43,7 +44,10 @@ public sealed class pl_Move : MonoBehaviour
     private bool isMovementReady;
     private bool isMovingToTarget;
     private bool canPlayerControlMovement = true;
+    private bool canPlayerTurn = true;
+    private Vector3 lockedMoveForward = Vector3.forward;
     private Vector3 moveTarget;
+    private Quaternion moveTargetRotation = Quaternion.identity;
     private readonly RaycastHit[] groundHitBuffer = new RaycastHit[32];
 
     public bool IsGrounded { get; private set; }
@@ -125,9 +129,31 @@ public sealed class pl_Move : MonoBehaviour
         }
     }
 
-    public void MoveToTarget(Vector3 targetPosition)
+    public void MoveToTarget(
+        Vector3 targetPosition,
+        Vector3 facingTargetPosition)
     {
         moveTarget = targetPosition;
+        moveTargetRotation = transform.rotation;
+
+        Vector3 facingDirection = Vector3.ProjectOnPlane(
+            facingTargetPosition - targetPosition,
+            Vector3.up);
+
+        if (facingDirection.sqrMagnitude > InputDeadZone * InputDeadZone)
+        {
+            moveTargetRotation = Quaternion.LookRotation(
+                facingDirection.normalized,
+                Vector3.up);
+        }
+        else
+        {
+            Debug.LogWarning(
+                $"{nameof(MoveToTarget)} on '{name}' received a facing target " +
+                "with no horizontal direction and will preserve the current rotation.",
+                this);
+        }
+
         isMovingToTarget = true;
         currentMoveSpeed = 0f;
         verticalVelocity = 0f;
@@ -162,22 +188,37 @@ public sealed class pl_Move : MonoBehaviour
 
         if (horizontalDistance.sqrMagnitude <= InputDeadZone * InputDeadZone)
         {
+            transform.rotation = moveTargetRotation;
             isMovingToTarget = false;
         }
     }
 
     private void UpdateHorizontalMovement(Vector2 moveInput, float deltaTime)
     {
+        Vector3 inputMovement = GetCameraRelativeDirection(moveInput);
         float inputMagnitude = moveInput.magnitude;
+
+        if (!canPlayerTurn)
+        {
+            inputMovement = Vector3.Project(
+                inputMovement,
+                lockedMoveForward);
+            inputMagnitude = inputMovement.magnitude;
+        }
+
         bool hasMoveInput = inputMagnitude > InputDeadZone;
 
         if (hasMoveInput)
         {
-            Vector3 inputDirection = GetCameraRelativeDirection(moveInput).normalized;
+            Vector3 inputDirection = inputMovement.normalized;
             lastMoveDirection = IsGrounded
                 ? ProjectOnPlane(inputDirection, groundNormal)
                 : inputDirection;
-            RotateTowards(inputDirection, deltaTime);
+
+            if (canPlayerTurn)
+            {
+                RotateTowards(inputDirection, deltaTime);
+            }
         }
 
         float targetSpeed = hasMoveInput ? maxMoveSpeed * inputMagnitude : 0f;
@@ -234,19 +275,38 @@ public sealed class pl_Move : MonoBehaviour
         Vector3 horizontalVelocity = lastMoveDirection * currentMoveSpeed;
         Vector3 velocity = horizontalVelocity + Vector3.up * verticalVelocity;
 
-        float movementDistance = velocity.magnitude * deltaTime;
-        float wallDetectionDistance = movementDistance + GetPlayerWorldRadius();
+        float horizontalMovementDistance =
+            horizontalVelocity.magnitude * deltaTime;
+        float playerWorldRadius = GetPlayerWorldRadius();
+        Vector3 colliderScale = playerCollider.transform.lossyScale;
+        float playerWorldHeight = Mathf.Max(
+            playerCollider.height * Mathf.Abs(colliderScale.y),
+            playerWorldRadius * 2f);
+        Vector3 capsuleCenter = playerCollider.transform.TransformPoint(
+            playerCollider.center);
+        float capsuleHalfSegment = Mathf.Max(
+            playerWorldHeight * 0.5f - playerWorldRadius,
+            0f);
+        Vector3 capsuleOffset =
+            playerCollider.transform.up * capsuleHalfSegment;
+        float wallDetectionDistance = horizontalMovementDistance + skin;
 
-        if (movementDistance > InputDeadZone &&
-            Physics.Raycast(
-                transform.position,
-                velocity,
+        if (horizontalMovementDistance > InputDeadZone &&
+            Physics.CapsuleCast(
+                capsuleCenter + capsuleOffset,
+                capsuleCenter - capsuleOffset,
+                playerWorldRadius,
+                horizontalVelocity.normalized,
                 out RaycastHit wallHit,
                 wallDetectionDistance,
-                wallMask,
+                wallMask.value | movableMask.value,
                 QueryTriggerInteraction.Ignore))
         {
-            velocity = ProjectOnPlane(velocity, wallHit.normal);
+            horizontalVelocity = ProjectOnPlane(
+                horizontalVelocity,
+                wallHit.normal);
+            horizontalVelocity.y = 0f;
+            velocity = horizontalVelocity + Vector3.up * verticalVelocity;
         }
 
         transform.position += velocity * deltaTime;
@@ -357,8 +417,24 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         canPlayerControlMovement = playerState.CanPlayerControlMovement;
+        canPlayerTurn = playerState.CanPlayerTurn;
         maxMoveSpeed = playerState.MaxMoveSpeed;
         stepOffset = playerState.MaxStepOffset;
+
+        if (!canPlayerTurn)
+        {
+            currentMoveSpeed = 0f;
+            lockedMoveForward = Vector3.ProjectOnPlane(
+                transform.forward,
+                Vector3.up).normalized;
+
+            if (lockedMoveForward.sqrMagnitude <= InputDeadZone)
+            {
+                lockedMoveForward = Vector3.forward;
+            }
+
+            lastMoveDirection = lockedMoveForward;
+        }
 
         if (!canPlayerControlMovement && !isMovingToTarget)
         {

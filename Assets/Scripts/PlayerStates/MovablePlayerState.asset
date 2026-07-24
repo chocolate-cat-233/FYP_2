@@ -13,5 +13,6 @@ MonoBehaviour:
   m_Name: MovablePlayerState
   m_EditorClassIdentifier: 
   canPlayerControlMovement: 1
+  canPlayerTurn: 0
   maxMoveSpeed: 3
   maxStepOffset: 0.3

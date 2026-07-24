@@ -164,7 +164,9 @@ public class Pl_Interact : MonoBehaviour
         Movable movable,
         Vector3 targetPosition)
     {
-        playerMovement.MoveToTarget(targetPosition);
+        playerMovement.MoveToTarget(
+            targetPosition,
+            movable.transform.position);
 
         while (playerMovement.IsMovingToTarget)
         {

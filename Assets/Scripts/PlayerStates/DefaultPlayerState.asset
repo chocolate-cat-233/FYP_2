@@ -13,5 +13,6 @@ MonoBehaviour:
   m_Name: DefaultPlayerState
   m_EditorClassIdentifier: 
   canPlayerControlMovement: 1
+  canPlayerTurn: 1
   maxMoveSpeed: 5
   maxStepOffset: 0.3
