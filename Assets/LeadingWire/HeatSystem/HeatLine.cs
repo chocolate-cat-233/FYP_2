@@ -232,8 +232,10 @@ namespace HeatSystem
 
         private bool AllBreakPointsConnected()
         {
+            if (breakPoints == null) return false;
             foreach (var bp in breakPoints)
             {
+                if (bp == null) continue;
                 if (!bp.IsConnected) return false;
             }
             return true;
@@ -241,9 +243,10 @@ namespace HeatSystem
 
         private int GetConnectedBreakPointCount()
         {
+            if (breakPoints == null) return 0;
             int count = 0;
             foreach (var bp in breakPoints)
-                if (bp.IsConnected) count++;
+                if (bp != null && bp.IsConnected) count++;
             return count;
         }
 

@@ -404,38 +404,25 @@ namespace HeatSystem.Editor
             }
 
             // 4. 两个断路点 (在热管A上，相隔 1.5 单位)
-            BreakPoint CreateBP(string name, float localX, Vector3 pushDir)
+            BreakPoint CreateBP(string name, float localX)
             {
                 var go = new GameObject(name, typeof(BreakPoint));
                 go.transform.SetParent(lineAGo.transform);
-                go.transform.localPosition = new Vector3(localX - 2.25f, 0, 0); // 转本地坐标
+                go.transform.localPosition = new Vector3(localX - 2.25f, 0, 0);
                 var bp = go.GetComponent<BreakPoint>();
                 var vis = MakeVisualChild(go, "Visual", Vector3.one * 0.25f);
                 BindRenderer(bp, vis);
-                var so = new SerializedObject(bp);
-                so.FindProperty("requiredPushDirection").vector3Value = pushDir;
-                so.ApplyModifiedProperties();
                 Undo.RegisterCreatedObjectUndo(go, "Create BP");
                 return bp;
             }
-            var bpA = CreateBP("Demo_BP-A", 1.5f, Vector3.forward);
-            var bpB = CreateBP("Demo_BP-B", 3.0f, Vector3.forward);
+            CreateBP("Demo_BP-A", 1.5f);
+            CreateBP("Demo_BP-B", 3.0f);
 
             // 5. 箱子 (两端沿 X, 居中在 BP-A/B 之间)
             var boxGo = HeatSystemMenuItems.CreatePushableBoxStatic();
             boxGo.name = "Demo_箱子";
             boxGo.transform.position = new Vector3(2.25f, 0, -0.6f);
-            // 重设箱子端点方向为 X 轴
-            var box = boxGo.GetComponent<PushableBox>();
-            if (box.EndpointA != null) DestroyImmediate(box.EndpointA.gameObject);
-            if (box.EndpointB != null) DestroyImmediate(box.EndpointB.gameObject);
-            // 用 reflection 重新创建 X 轴端点 (public setter 不可用, 直接重建子物体)
-            var endAX = new GameObject("EndA"); endAX.transform.SetParent(boxGo.transform);
-            endAX.transform.localPosition = Vector3.right * 0.6f;
-            var colA = endAX.AddComponent<BoxCollider>(); colA.isTrigger = true; colA.size = Vector3.one * 0.7f;
-            var endBX = new GameObject("EndB"); endBX.transform.SetParent(boxGo.transform);
-            endBX.transform.localPosition = Vector3.left * 0.6f;
-            var colB = endBX.AddComponent<BoxCollider>(); colB.isTrigger = true; colB.size = Vector3.one * 0.7f;
+            // 默认触点已是 I 形(X轴)，直接保留
 
             // 6. 终端节点
             var termGo = HeatSystemMenuItems.CreateHeatNodeStatic();

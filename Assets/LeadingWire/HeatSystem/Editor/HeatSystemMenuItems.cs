@@ -59,10 +59,24 @@ namespace HeatSystem.Editor
             var rb = go.GetComponent<Rigidbody>();
             if (rb == null) rb = go.AddComponent<Rigidbody>();
             rb.constraints = RigidbodyConstraints.FreezeRotation;
-            // 添加碰撞体（CreateBaseObject 删掉了 Visual 的 Collider，但箱子需要 Collider 来触发 OnTriggerEnter）
             var boxCol = go.AddComponent<BoxCollider>();
             boxCol.size = Vector3.one * 0.5f;
+
+            // 默认 I 形触点：两端各一个
+            CreateBoxContact(go, "触点A", Vector3.right * 0.5f);
+            CreateBoxContact(go, "触点B", Vector3.left * 0.5f);
+
             return go;
+        }
+
+        private static void CreateBoxContact(GameObject parent, string name, Vector3 localPos)
+        {
+            var c = new GameObject(name);
+            c.transform.SetParent(parent.transform);
+            c.transform.localPosition = localPos;
+            var col = c.AddComponent<BoxCollider>();
+            col.isTrigger = true;
+            col.size = Vector3.one * 0.4f;
         }
 
         // ── MenuItem wrappers ──
