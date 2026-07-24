@@ -18,8 +18,12 @@ namespace HeatSystem.Editor
 
         public static GameObject CreateHeatSourceStatic()
         {
-            GameObject go = CreateBaseObject("HeatSource", typeof(HeatSource));
+            GameObject go = CreateBaseObject("HeatNode", typeof(HeatNode));
             go.name = "热源";
+            // 设为热源模式
+            var so = new SerializedObject(go.GetComponent<HeatNode>());
+            so.FindProperty("isSource").boolValue = true;
+            so.ApplyModifiedProperties();
             return go;
         }
 
@@ -55,7 +59,24 @@ namespace HeatSystem.Editor
             var rb = go.GetComponent<Rigidbody>();
             if (rb == null) rb = go.AddComponent<Rigidbody>();
             rb.constraints = RigidbodyConstraints.FreezeRotation;
+            var boxCol = go.AddComponent<BoxCollider>();
+            boxCol.size = Vector3.one * 0.5f;
+
+            // 默认 I 形触点：两端各一个
+            CreateBoxContact(go, "触点A", Vector3.right * 0.5f);
+            CreateBoxContact(go, "触点B", Vector3.left * 0.5f);
+
             return go;
+        }
+
+        private static void CreateBoxContact(GameObject parent, string name, Vector3 localPos)
+        {
+            var c = new GameObject(name);
+            c.transform.SetParent(parent.transform);
+            c.transform.localPosition = localPos;
+            var col = c.AddComponent<BoxCollider>();
+            col.isTrigger = true;
+            col.size = Vector3.one * 0.4f;
         }
 
         // ── MenuItem wrappers ──
@@ -218,6 +239,19 @@ namespace HeatSystem.Editor
             // 移除子物体上不需要的组件，保留 MeshRenderer 用于显示颜色
             Object.DestroyImmediate(visual.GetComponent<Rigidbody>());
             Object.DestroyImmediate(visual.GetComponent<Collider>());
+
+            // 把 visual 的 MeshRenderer 赋给所有组件的 targetRenderer 字段
+            var visualRenderer = visual.GetComponent<MeshRenderer>();
+            foreach (var comp in go.GetComponents<MonoBehaviour>())
+            {
+                var so = new SerializedObject(comp);
+                var prop = so.FindProperty("targetRenderer");
+                if (prop != null)
+                {
+                    prop.objectReferenceValue = visualRenderer;
+                    so.ApplyModifiedProperties();
+                }
+            }
 
             // 确保父物体有正确的 Collider 设置（如果是 BreakPoint）
             var bp = go.GetComponent<BreakPoint>();

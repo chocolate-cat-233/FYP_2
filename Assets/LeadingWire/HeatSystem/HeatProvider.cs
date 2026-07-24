@@ -41,7 +41,10 @@ namespace HeatSystem
             if (targetRenderer == null)
             {
                 targetRenderer = GetComponent<MeshRenderer>();
+                if (targetRenderer == null)
+                    targetRenderer = GetComponentInChildren<MeshRenderer>();
             }
+            if (targetRenderer == null) return;
             targetRenderer.material.color = IsOutputting ? energizedColor : defaultColor;
         }
 

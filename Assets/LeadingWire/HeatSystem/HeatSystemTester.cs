@@ -20,7 +20,7 @@ namespace HeatSystem
     {
         [Header("测试链引用")]
         [SerializeField, Tooltip("被测热源")]
-        private HeatSource testSource;
+        private HeatNode testSource;
 
         [SerializeField, Tooltip("热源下游的热管（可含断路点）")]
         private HeatLine sourceLine;
@@ -33,7 +33,7 @@ namespace HeatSystem
 
         [Header("与门测试（可选）")]
         [SerializeField, Tooltip("第二个热源（用于与门测试）")]
-        private HeatSource testSource2;
+        private HeatNode testSource2;
 
         [SerializeField, Tooltip("与门节点的第一条输入热管")]
         private HeatLine andGateLine1;
@@ -77,16 +77,21 @@ namespace HeatSystem
             int bpCount = breakPoints != null ? breakPoints.Length : 0;
             Debug.Log($"  热管 [{sourceLine.name}] 包含 {bpCount} 个断路点");
 
+            // Step 0: 激活热源
+            Debug.Log("\n── Step 0: 激活热源 ──");
+            yield return null;
+            testSource.Interact();
+            yield return null;
+            LogResult("热源输出", testSource.IsOutputting, true);
+
             // Step 1: 初始状态检查
             Debug.Log("\n── Step 1: 初始状态 ──");
             yield return null;
 
-            bool sourceOutputting = testSource.IsOutputting;
             bool lineFlowing = sourceLine.IsFlowing;
             bool nodePrimed = repeaterNode.IsPrimed;
             bool nodeOutputting = repeaterNode.IsOutputting;
 
-            LogResult("热源输出", sourceOutputting, true);
             LogResult("热管流动（所有断路点未连接 → 应阻断）", lineFlowing, false);
             LogResult("节点蓄能（输入未到 → 待机）", nodePrimed, false);
             LogResult("节点输出", nodeOutputting, false);
