@@ -179,7 +179,7 @@ namespace HeatSystem.Editor
         {
             EditorGUILayout.LabelField("场景热网概览", EditorStyles.boldLabel);
 
-            var sources = FindAll<HeatSource>();
+            var sources = FindAll<HeatProvider>();
             var nodes = FindAll<HeatNode>();
             var lines = FindAll<HeatLine>();
 
@@ -301,7 +301,7 @@ namespace HeatSystem.Editor
             {
                 // Try find nearest provider
                 var providers = FindAll<HeatProvider>()
-                    .Where(p => p != line && !(p is HeatNode))
+                    .Where(p => p != line)
                     .OrderBy(p => Vector3.Distance(p.transform.position, line.transform.position))
                     .ToArray();
 
@@ -349,75 +349,141 @@ namespace HeatSystem.Editor
         {
             Debug.Log("⚡ 创建完整 Demo 链路...");
 
-            // 1. Create Heat Source
-            var source = HeatSystemMenuItems.CreateHeatSourceStatic();
-            source.name = "Demo_热源";
-            source.transform.position = new Vector3(0, 0, 0);
+            // ─── 辅助函数：创建带 Visual 的自定义物体 ───
+            GameObject MakeVisualChild(GameObject parent, string name, Vector3 scale, Color? color = null)
+            {
+                var v = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                v.name = name;
+                v.transform.SetParent(parent.transform);
+                v.transform.localPosition = Vector3.zero;
+                v.transform.localScale = scale;
+                var r = v.GetComponent<MeshRenderer>();
+                if (r != null && color.HasValue) r.material.color = color.Value;
+                DestroyImmediate(v.GetComponent<Rigidbody>());
+                DestroyImmediate(v.GetComponent<Collider>());
+                return v;
+            }
 
-            // 2. Create Repeater Node
-            var node = HeatSystemMenuItems.CreateHeatNodeStatic();
-            node.name = "Demo_中继器";
-            node.transform.position = new Vector3(3, 0, 0);
+            void BindRenderer(Object comp, GameObject visual)
+            {
+                var so = new SerializedObject(comp);
+                var p = so.FindProperty("targetRenderer");
+                if (p != null) { p.objectReferenceValue = visual.GetComponent<MeshRenderer>(); so.ApplyModifiedProperties(); }
+            }
 
-            // 3. Create HeatLine from source to node
-            var lineGo = HeatSystemMenuItems.CreateHeatLineStatic();
-            lineGo.name = "Demo_热管";
-            lineGo.transform.position = new Vector3(1.5f, 0, 0);
-            var lineComp = lineGo.GetComponent<HeatLine>();
+            // ═══════════════════════════════════════════
+            //  布局 (X轴):
+            //  [热源] ── [BP-A] ── [BP-B] ── [中继器] ── [碎石×3] ── [终端]
+            //  (0,0,0)  (1.5,0,0) (3,0,0)   (4.5,0,0)  (6,0,0)     (7.5,0,0)
+            //
+            //  箱子居中在 (2.25,0,-0.6)，两端沿 X 伸入两 BP:
+            //     EndB(-X) → BP-A,  EndA(+X) → BP-B
+            // ═══════════════════════════════════════════
 
-            // Wire
-            var so = new SerializedObject(lineComp);
-            so.FindProperty("provider").objectReferenceValue = source.GetComponent<HeatSource>();
-            so.FindProperty("acceptor").objectReferenceValue = node.GetComponent<HeatNode>();
-            so.ApplyModifiedProperties();
+            // 1. 热源
+            var srcGo = HeatSystemMenuItems.CreateHeatSourceStatic();
+            srcGo.name = "Demo_热源";
+            srcGo.transform.position = new Vector3(0, 0, 0);
 
-            // 4. Create BreakPoint as child of HeatLine
-            var bpGo = new GameObject("Demo_断路点", typeof(BreakPoint));
-            bpGo.transform.SetParent(lineGo.transform);
-            bpGo.transform.localPosition = Vector3.zero;
-            Undo.RegisterCreatedObjectUndo(bpGo, "Create BreakPoint");
+            // 2. 中继器
+            var nodeGo = HeatSystemMenuItems.CreateHeatNodeStatic();
+            nodeGo.name = "Demo_中继器";
+            nodeGo.transform.position = new Vector3(4.5f, 0, 0);
+            var nodeComp = nodeGo.GetComponent<HeatNode>();
 
-            // Add visual cube to breakpoint
-            var bpVisual = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            bpVisual.name = "Visual";
-            bpVisual.transform.SetParent(bpGo.transform);
-            bpVisual.transform.localPosition = Vector3.zero;
-            bpVisual.transform.localScale = Vector3.one * 0.3f;
-            DestroyImmediate(bpVisual.GetComponent<Rigidbody>());
-            DestroyImmediate(bpVisual.GetComponent<Collider>());
+            // 3. 热管A：热源 → 中继器 (在中间有双断路点+箱子)
+            var lineAGo = HeatSystemMenuItems.CreateHeatLineStatic();
+            lineAGo.name = "Demo_热管A";
+            lineAGo.transform.position = new Vector3(2.25f, 0, 0);
+            var lineA = lineAGo.GetComponent<HeatLine>();
+            {
+                var so = new SerializedObject(lineA);
+                so.FindProperty("provider").objectReferenceValue = srcGo.GetComponent<HeatNode>();
+                so.FindProperty("acceptor").objectReferenceValue = nodeComp;
+                so.ApplyModifiedProperties();
+            }
 
-            // 5. Create output node (terminal)
-            var node2Go = HeatSystemMenuItems.CreateHeatNodeStatic();
-            node2Go.name = "Demo_输出节点";
-            node2Go.transform.position = new Vector3(6, 0, 0);
-            var node2Comp = node2Go.GetComponent<HeatNode>();
+            // 4. 两个断路点 (在热管A上，相隔 1.5 单位)
+            BreakPoint CreateBP(string name, float localX, Vector3 pushDir)
+            {
+                var go = new GameObject(name, typeof(BreakPoint));
+                go.transform.SetParent(lineAGo.transform);
+                go.transform.localPosition = new Vector3(localX - 2.25f, 0, 0); // 转本地坐标
+                var bp = go.GetComponent<BreakPoint>();
+                var vis = MakeVisualChild(go, "Visual", Vector3.one * 0.25f);
+                BindRenderer(bp, vis);
+                var so = new SerializedObject(bp);
+                so.FindProperty("requiredPushDirection").vector3Value = pushDir;
+                so.ApplyModifiedProperties();
+                Undo.RegisterCreatedObjectUndo(go, "Create BP");
+                return bp;
+            }
+            var bpA = CreateBP("Demo_BP-A", 1.5f, Vector3.forward);
+            var bpB = CreateBP("Demo_BP-B", 3.0f, Vector3.forward);
 
-            // 6. Create output line
-            var line2Go = HeatSystemMenuItems.CreateHeatLineStatic();
-            line2Go.name = "Demo_输出热管";
-            line2Go.transform.position = new Vector3(4.5f, 0, 0);
-            var line2Comp = line2Go.GetComponent<HeatLine>();
+            // 5. 箱子 (两端沿 X, 居中在 BP-A/B 之间)
+            var boxGo = HeatSystemMenuItems.CreatePushableBoxStatic();
+            boxGo.name = "Demo_箱子";
+            boxGo.transform.position = new Vector3(2.25f, 0, -0.6f);
+            // 重设箱子端点方向为 X 轴
+            var box = boxGo.GetComponent<PushableBox>();
+            if (box.EndpointA != null) DestroyImmediate(box.EndpointA.gameObject);
+            if (box.EndpointB != null) DestroyImmediate(box.EndpointB.gameObject);
+            // 用 reflection 重新创建 X 轴端点 (public setter 不可用, 直接重建子物体)
+            var endAX = new GameObject("EndA"); endAX.transform.SetParent(boxGo.transform);
+            endAX.transform.localPosition = Vector3.right * 0.6f;
+            var colA = endAX.AddComponent<BoxCollider>(); colA.isTrigger = true; colA.size = Vector3.one * 0.7f;
+            var endBX = new GameObject("EndB"); endBX.transform.SetParent(boxGo.transform);
+            endBX.transform.localPosition = Vector3.left * 0.6f;
+            var colB = endBX.AddComponent<BoxCollider>(); colB.isTrigger = true; colB.size = Vector3.one * 0.7f;
 
-            var so2 = new SerializedObject(line2Comp);
-            so2.FindProperty("provider").objectReferenceValue = node.GetComponent<HeatNode>();
-            so2.FindProperty("acceptor").objectReferenceValue = node2Comp;
-            so2.ApplyModifiedProperties();
+            // 6. 终端节点
+            var termGo = HeatSystemMenuItems.CreateHeatNodeStatic();
+            termGo.name = "Demo_终端";
+            termGo.transform.position = new Vector3(7.5f, 0, 0);
+            var termComp = termGo.GetComponent<HeatNode>();
 
-            // Generate segments for both lines
-            lineComp.GenerateSegments();
-            line2Comp.GenerateSegments();
+            // 7. 热管B：中继器 → 终端 (含碎石)
+            var lineBGo = HeatSystemMenuItems.CreateHeatLineStatic();
+            lineBGo.name = "Demo_热管B";
+            lineBGo.transform.position = new Vector3(6.0f, 0, 0);
+            var lineB = lineBGo.GetComponent<HeatLine>();
+            {
+                var so = new SerializedObject(lineB);
+                so.FindProperty("provider").objectReferenceValue = nodeComp;
+                so.FindProperty("acceptor").objectReferenceValue = termComp;
+                so.ApplyModifiedProperties();
+            }
 
-            // Select the breakpoint for easy testing
-            Selection.activeGameObject = bpGo;
-            EditorGUIUtility.PingObject(bpGo);
+            // 8. 碎石 (在热管B上)
+            for (int i = 0; i < 3; i++)
+            {
+                var dGo = new GameObject($"Demo_碎石{i}", typeof(BreakableDebris));
+                dGo.transform.SetParent(lineBGo.transform);
+                dGo.transform.localPosition = new Vector3((i - 1) * 0.4f, 0.2f, 0);
+                dGo.transform.localScale = Vector3.one * 0.3f;
+                MakeVisualChild(dGo, "Visual", Vector3.one, new Color(0.45f, 0.35f, 0.25f));
+                Undo.RegisterCreatedObjectUndo(dGo, "Create Debris");
+            }
+
+            // 9. 生成管线段
+            lineA.GenerateSegments();
+            lineB.GenerateSegments();
+
+            // 10. 选中箱子
+            Selection.activeGameObject = boxGo;
+            EditorGUIUtility.PingObject(boxGo);
 
             Debug.Log("✅ Demo 链路创建完成！\n" +
-                      $"   热源 → [{lineGo.name}] → 中继器 → [{line2Go.name}] → 输出节点\n" +
-                      $"   选中了断路点 [{bpGo.name}]，运行后在 Inspector 右键切换修复状态。");
-            Debug.Log("💡 使用步骤:\n" +
-                      "   1. 点击 Play 运行\n" +
-                      "   2. 右键断路点 → Toggle Fixed\n" +
-                      "   3. 观察 Console 和管线段颜色变化");
+                      "   热源(0) → [BP-A|BP-B] → 中继器(4.5) → [碎石] → 终端(7.5)\n" +
+                      "   箱子(2.25,0,-0.6)，两端沿X伸入BP-A和BP-B");
+            Debug.Log("💡 测试步骤:\n" +
+                      "   1. Play → 全部灰色\n" +
+                      "   2. 右键箱子 → 向北推 1 单位 → 箱子滑入两BP之间\n" +
+                      "      BP-A🟢 BP-B🟢 → 热管A 级联点亮\n" +
+                      "   3. 选中热源 → 点「💥交互激活」→ 热源变红\n" +
+                      "   4. 选中中继器 → 蓄能(黄) →「💥交互激活」→ 热管B 级联+碎石炸飞\n" +
+                      "   5. 右键箱子 → 向南推 1 单位 → 全线掉电");
         }
 
         #endregion

@@ -32,7 +32,10 @@ namespace HeatSystem
     public class HeatNode : HeatProvider, IHeatAcceptor
     {
         [Header("节点设置")]
-        [SerializeField, Tooltip("节点逻辑类型")]
+        [SerializeField, Tooltip("作为热源（无输入，自动蓄能，可交互激活）")]
+        private bool isSource = false;
+
+        [SerializeField, Tooltip("节点逻辑类型（非热源时有效）")]
         private NodeType nodeType = NodeType.Repeater;
 
         [SerializeField, Tooltip("与门模式下期望的输入热管总数")]
@@ -42,7 +45,10 @@ namespace HeatSystem
         private string nodeName = "节点";
 
         [Header("交互")]
-        [SerializeField, Tooltip("需要玩家交互才能触发输出（关闭则为自动转发，用于纯逻辑节点）")]
+        [SerializeField, Tooltip("编辑器中预设：开始时已激活")]
+        private bool startActivated = false;
+
+        [SerializeField, Tooltip("需要玩家交互才能触发输出（关闭则为自动转发）")]
         private bool requirePlayerActivation = true;
 
         [Header("视觉反馈")]
@@ -89,6 +95,25 @@ namespace HeatSystem
                 .Where(l => l.Provider == this)
                 .ToArray();
 
+            // 热源模式：自动蓄能
+            if (isSource)
+            {
+                _isPrimed = true;
+                debugIsPrimed = true;
+                Debug.Log($"[节点: {nodeName}] 🔥 热源模式，自动蓄能！");
+            }
+
+            // 初始激活（跳过交互，直接输出）
+            if (startActivated)
+            {
+                _isPrimed = false;
+                _isOutputting = true;
+                debugIsOutputting = true;
+                debugIsPrimed = false;
+                Debug.Log($"[节点: {nodeName}] ⚡ 初始激活！");
+                NotifyOutputChanged();
+            }
+
             UpdateVisuals();
         }
 
@@ -120,7 +145,8 @@ namespace HeatSystem
         /// </summary>
         private void Evaluate()
         {
-            bool inputMet = nodeType switch
+            // 热源模式：输入始终满足
+            bool inputMet = isSource || nodeType switch
             {
                 NodeType.Repeater => activeInputLines.Count > 0,
                 NodeType.AndGate => activeInputLines.Count >= GetTotalInputCount(),
@@ -251,6 +277,7 @@ namespace HeatSystem
         public string GetInteractHint()
         {
             if (_isOutputting) return "已激活";
+            if (isSource) return "可以交互（热源）";
             if (!_isPrimed)
             {
                 int needed = GetTotalInputCount();
@@ -298,7 +325,11 @@ namespace HeatSystem
         protected override void UpdateVisuals()
         {
             if (targetRenderer == null)
+            {
                 targetRenderer = GetComponent<MeshRenderer>();
+                if (targetRenderer == null)
+                    targetRenderer = GetComponentInChildren<MeshRenderer>();
+            }
             if (targetRenderer == null) return;
 
             if (_isOutputting)
@@ -335,7 +366,7 @@ namespace HeatSystem
             Gizmos.DrawSphere(transform.position, 0.25f);
 
             string state = _isOutputting ? "💥已激活" : (_isPrimed ? "⚡蓄能中" : "待机");
-            string typeLabel = nodeType == NodeType.Repeater ? "⏺" : "&";
+            string typeLabel = isSource ? "🔥" : (nodeType == NodeType.Repeater ? "⏺" : "&");
             int downstreamCount = downstreamLines != null ? downstreamLines.Length : 0;
             string label = $"{typeLabel} {nodeName} [{state}]\n" +
                            $"输入={activeInputLines.Count}/{GetTotalInputCount()} " +
