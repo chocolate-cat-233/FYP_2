@@ -20,11 +20,14 @@ public class Pl_Interact : MonoBehaviour
     private Movable pendingMovable;
     private Movable activeMovable;
     private PlayerState stateBeforeMoving;
+    private Vector3 playerOffsetFromMovable;
 
     public int NearbyInteractableCount => nearbyInteractables.Count;
 
     private void Update()
     {
+        RemoveInvalidInteractables();
+
         if (moveToStandPointRoutine != null &&
             (pendingMovable == null || !pendingMovable.isActiveAndEnabled))
         {
@@ -32,9 +35,34 @@ public class Pl_Interact : MonoBehaviour
         }
 
         if (isMovingMovable &&
-            (activeMovable == null || !activeMovable.isActiveAndEnabled))
+            (activeMovable == null ||
+             !activeMovable.isActiveAndEnabled ||
+             playerMovement == null ||
+             !playerMovement.isActiveAndEnabled))
         {
             StopMovableInteraction();
+        }
+    }
+
+    private void LateUpdate()
+    {
+        if (!isMovingMovable ||
+            activeMovable == null ||
+            !activeMovable.isActiveAndEnabled)
+        {
+            return;
+        }
+
+        Vector3 positionBeforeFollow = transform.position;
+        Vector3 playerPosition =
+            activeMovable.transform.position + playerOffsetFromMovable;
+        playerPosition.y = transform.position.y;
+        transform.position = playerPosition;
+
+        if (playerMovement != null)
+        {
+            playerMovement.ReportHorizontalMovementApplied(
+                playerPosition - positionBeforeFollow);
         }
     }
 
@@ -68,12 +96,7 @@ public class Pl_Interact : MonoBehaviour
             CancelMoveToStandPoint();
         }
 
-        if (exitedMovable != null && exitedMovable == activeMovable)
-        {
-            StopMovableInteraction();
-        }
-
-        if (nearbyInteractables.Count == 0)
+        if (nearbyInteractables.Count == 0 && !isMovingMovable)
         {
             UnsubscribeFromInput();
         }
@@ -122,17 +145,17 @@ public class Pl_Interact : MonoBehaviour
 
         foreach (Collider interactable in nearbyInteractables)
         {
-            if (interactable.gameObject.layer == LayerMask.NameToLayer("Movable"))
+            if ( interactable.gameObject.layer == LayerMask.NameToLayer("Movable"))
             {
                 HandleMovable(interactable.gameObject);
+                return;
             }
-            if (interactable.gameObject.layer == LayerMask.NameToLayer("Pump"))
+
+            if (layer == LayerMask.NameToLayer("Pump"))
             {
                 HandlePump(interactable.gameObject);
+                return;
             }
-
-
-            return;
         }
     }
 
@@ -211,16 +234,41 @@ public class Pl_Interact : MonoBehaviour
 
         activeMovable = movable;
         activeMovable.SetCanMove(true);
+
+        playerOffsetFromMovable =
+            transform.position - activeMovable.transform.position;
+        playerOffsetFromMovable.y = 0f;
+
+        if (!playerMovement.TrySetHorizontalMovementDriver(
+                MoveActiveMovable))
+        {
+            Debug.LogWarning(
+                $"{name} could not start moving '{movable.name}' because " +
+                "the horizontal movement driver is already in use.",
+                this);
+            RollBackMovableStart();
+            yield break;
+        }
+
         isMovingMovable = true;
-        playerMovement.MovementApplied += MoveActiveMovable;
     }
 
     private void MoveActiveMovable(Vector3 worldDelta)
     {
-        if (activeMovable != null)
+        if (activeMovable == null)
         {
-            activeMovable.Move(worldDelta);
+            return;
         }
+
+        Vector3 playerLocalDelta =
+            transform.InverseTransformDirection(worldDelta);
+        playerLocalDelta.x = 0f;
+
+        Vector3 movableWorldDelta =
+            transform.TransformDirection(playerLocalDelta);
+        movableWorldDelta.y = 0f;
+
+        activeMovable.Move(movableWorldDelta);
     }
 
     private void CancelMoveToStandPoint()
@@ -239,13 +287,19 @@ public class Pl_Interact : MonoBehaviour
         {
             playerMovement.CancelMoveToTarget();
         }
+
+        if (nearbyInteractables.Count == 0 && !isMovingMovable)
+        {
+            UnsubscribeFromInput();
+        }
     }
 
     private void StopMovableInteraction()
     {
         if (playerMovement != null)
         {
-            playerMovement.MovementApplied -= MoveActiveMovable;
+            playerMovement.ClearHorizontalMovementDriver(
+                MoveActiveMovable);
         }
 
         PlayerState previousState = stateBeforeMoving;
@@ -261,6 +315,7 @@ public class Pl_Interact : MonoBehaviour
         isMovingMovable = false;
         activeMovable = null;
         stateBeforeMoving = null;
+        playerOffsetFromMovable = Vector3.zero;
 
         if (restoreState &&
             previousState != null &&
@@ -268,6 +323,96 @@ public class Pl_Interact : MonoBehaviour
         {
             stateManager.ChangeState(previousState);
         }
+
+        if (nearbyInteractables.Count == 0)
+        {
+            UnsubscribeFromInput();
+        }
+    }
+
+    private void RollBackMovableStart()
+    {
+        PlayerState previousState = stateBeforeMoving;
+        bool restoreState =
+            stateManager != null &&
+            stateManager.CurrentState == movablePlayerState;
+
+        if (activeMovable != null)
+        {
+            activeMovable.SetCanMove(false);
+        }
+
+        isMovingMovable = false;
+        activeMovable = null;
+        stateBeforeMoving = null;
+        playerOffsetFromMovable = Vector3.zero;
+
+        if (restoreState &&
+            previousState != null &&
+            previousState != movablePlayerState)
+        {
+            stateManager.ChangeState(previousState);
+        }
+
+        if (nearbyInteractables.Count == 0)
+        {
+            UnsubscribeFromInput();
+        }
+    }
+
+    private void RemoveInvalidInteractables()
+    {
+        for (int i = nearbyInteractables.Count - 1; i >= 0; i--)
+        {
+            Collider interactable = nearbyInteractables[i];
+
+            if (interactable == null ||
+                !interactable.enabled ||
+                !interactable.gameObject.activeInHierarchy)
+            {
+                nearbyInteractables.RemoveAt(i);
+            }
+        }
+
+        if (moveToStandPointRoutine != null &&
+            !ContainsMovable(pendingMovable))
+        {
+            CancelMoveToStandPoint();
+        }
+
+        if (nearbyInteractables.Count == 0 &&
+            moveToStandPointRoutine == null &&
+            !isMovingMovable)
+        {
+            UnsubscribeFromInput();
+            return;
+        }
+
+        if (nearbyInteractables.Count > 0)
+        {
+            SubscribeToInput();
+        }
+    }
+
+    private bool ContainsMovable(Movable movable)
+    {
+        if (movable == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < nearbyInteractables.Count; i++)
+        {
+            Collider interactable = nearbyInteractables[i];
+
+            if (interactable != null &&
+                interactable.GetComponent<Movable>() == movable)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void OnDisable()

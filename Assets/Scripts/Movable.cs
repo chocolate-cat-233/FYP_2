@@ -7,6 +7,8 @@ public class Movable : MonoBehaviour
     private bool canMove;
     private Rigidbody movableRigidbody;
     private RigidbodyConstraints unlockedConstraints;
+    private RigidbodyInterpolation unlockedInterpolation;
+    private Vector3 desiredHorizontalVelocity;
 
     public bool CanMove => canMove;
 
@@ -23,14 +25,24 @@ public class Movable : MonoBehaviour
         }
 
         unlockedConstraints = movableRigidbody.constraints;
+        unlockedInterpolation = movableRigidbody.interpolation;
         movableRigidbody.constraints =
             unlockedConstraints | RigidbodyConstraints.FreezePosition;
         movableRigidbody.Sleep();
     }
 
+    private void OnDisable()
+    {
+        if (canMove)
+        {
+            SetCanMove(false);
+        }
+    }
+
     public void SetCanMove(bool value)
     {
         canMove = value;
+        desiredHorizontalVelocity = Vector3.zero;
 
         if (movableRigidbody == null)
         {
@@ -39,16 +51,41 @@ public class Movable : MonoBehaviour
 
         if (canMove)
         {
-            movableRigidbody.constraints = unlockedConstraints;
+            movableRigidbody.linearVelocity = Vector3.zero;
+            movableRigidbody.angularVelocity = Vector3.zero;
+            movableRigidbody.constraints =
+                unlockedConstraints |
+                RigidbodyConstraints.FreezePositionY |
+                RigidbodyConstraints.FreezeRotation;
+            movableRigidbody.interpolation =
+                RigidbodyInterpolation.Interpolate;
             movableRigidbody.WakeUp();
             return;
         }
 
         movableRigidbody.linearVelocity = Vector3.zero;
         movableRigidbody.angularVelocity = Vector3.zero;
+        movableRigidbody.interpolation = unlockedInterpolation;
         movableRigidbody.constraints =
             unlockedConstraints | RigidbodyConstraints.FreezePosition;
         movableRigidbody.Sleep();
+    }
+
+    private void FixedUpdate()
+    {
+        if (movableRigidbody == null)
+        {
+            desiredHorizontalVelocity = Vector3.zero;
+            return;
+        }
+
+        if (!canMove)
+        {
+            desiredHorizontalVelocity = Vector3.zero;
+            return;
+        }
+
+        movableRigidbody.linearVelocity = desiredHorizontalVelocity;
     }
 
     public Transform GetStandPoint(Transform playerTransform)
@@ -96,6 +133,14 @@ public class Movable : MonoBehaviour
         }
 
         worldDelta.y = 0f;
-        transform.position += worldDelta;
+
+        if (Time.deltaTime <= Mathf.Epsilon)
+        {
+            desiredHorizontalVelocity = Vector3.zero;
+            return;
+        }
+
+        desiredHorizontalVelocity = worldDelta / Time.deltaTime;
+        desiredHorizontalVelocity.y = 0f;
     }
 }

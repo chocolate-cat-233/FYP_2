@@ -49,6 +49,7 @@ public sealed class pl_Move : MonoBehaviour
     private Vector3 moveTarget;
     private Quaternion moveTargetRotation = Quaternion.identity;
     private readonly RaycastHit[] groundHitBuffer = new RaycastHit[32];
+    private Action<Vector3> horizontalMovementDriver;
 
     public bool IsGrounded { get; private set; }
     public bool IsMovingToTarget => isMovingToTarget;
@@ -92,6 +93,7 @@ public sealed class pl_Move : MonoBehaviour
         IsGrounded = false;
         isMovingToTarget = false;
         isMovementReady = false;
+        horizontalMovementDriver?.Invoke(Vector3.zero);
     }
 
     private void Update()
@@ -121,12 +123,7 @@ public sealed class pl_Move : MonoBehaviour
         SnapOnGround();
 
         Vector3 appliedMovement = transform.position - positionBeforeMovement;
-        appliedMovement.y = 0f;
-
-        if (appliedMovement.sqrMagnitude > InputDeadZone * InputDeadZone)
-        {
-            MovementApplied?.Invoke(appliedMovement);
-        }
+        ReportHorizontalMovementApplied(appliedMovement);
     }
 
     public void MoveToTarget(
@@ -157,6 +154,41 @@ public sealed class pl_Move : MonoBehaviour
         isMovingToTarget = true;
         currentMoveSpeed = 0f;
         verticalVelocity = 0f;
+    }
+
+    public bool TrySetHorizontalMovementDriver(Action<Vector3> driver)
+    {
+        if (driver == null)
+        {
+            return false;
+        }
+
+        if (horizontalMovementDriver != null &&
+            horizontalMovementDriver != driver)
+        {
+            return false;
+        }
+
+        horizontalMovementDriver = driver;
+        return true;
+    }
+
+    public void ClearHorizontalMovementDriver(Action<Vector3> driver)
+    {
+        if (horizontalMovementDriver == driver)
+        {
+            horizontalMovementDriver = null;
+        }
+    }
+
+    internal void ReportHorizontalMovementApplied(Vector3 worldDelta)
+    {
+        worldDelta.y = 0f;
+
+        if (worldDelta.sqrMagnitude > InputDeadZone * InputDeadZone)
+        {
+            MovementApplied?.Invoke(worldDelta);
+        }
     }
 
     public void CancelMoveToTarget()
@@ -307,6 +339,14 @@ public sealed class pl_Move : MonoBehaviour
                 wallHit.normal);
             horizontalVelocity.y = 0f;
             velocity = horizontalVelocity + Vector3.up * verticalVelocity;
+        }
+
+        if (horizontalMovementDriver != null)
+        {
+            horizontalMovementDriver(horizontalVelocity * deltaTime);
+            transform.position +=
+                Vector3.up * verticalVelocity * deltaTime;
+            return;
         }
 
         transform.position += velocity * deltaTime;
