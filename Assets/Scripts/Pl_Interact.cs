@@ -136,15 +136,9 @@ public class Pl_Interact : MonoBehaviour
 
 
 
-        for (int i = 0; i < nearbyInteractables.Count; i++)
+        foreach (Collider interactable in nearbyInteractables)
         {
-            Collider interactable = nearbyInteractables[i];
-            if (interactable == null)
-                continue;
-
-            int layer = interactable.gameObject.layer;
-
-            if (layer == LayerMask.NameToLayer("Movable"))
+            if ( interactable.gameObject.layer == LayerMask.NameToLayer("Movable"))
             {
                 HandleMovable(interactable.gameObject);
                 return;
@@ -187,9 +181,9 @@ public class Pl_Interact : MonoBehaviour
 
     protected void HandlePump(GameObject target)
     {
-
+        target.GetComponent<HeatSystem.HeatNode>().Interact();
     }
- 
+
 
     private IEnumerator MoveToStandPoint(
         Movable movable,
