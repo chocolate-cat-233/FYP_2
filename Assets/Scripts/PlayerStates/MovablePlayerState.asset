@@ -14,5 +14,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   canPlayerControlMovement: 1
   canPlayerTurn: 0
-  maxMoveSpeed: 3
+  maxMoveSpeed: 2
   maxStepOffset: 0.3
