@@ -118,11 +118,11 @@ public class Pl_Interact : MonoBehaviour
             return;
         }
 
-   
+
 
         foreach (Collider interactable in nearbyInteractables)
         {
-            if ( interactable.gameObject.layer == LayerMask.NameToLayer("Movable"))
+            if (interactable.gameObject.layer == LayerMask.NameToLayer("Movable"))
             {
                 HandleMovable(interactable.gameObject);
             }
@@ -165,9 +165,9 @@ public class Pl_Interact : MonoBehaviour
 
     protected void HandlePump(GameObject target)
     {
-
+        target.GetComponent<HeatSystem.HeatNode>().Interact();
     }
- 
+
 
     private IEnumerator MoveToStandPoint(
         Movable movable,
