@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace HeatSystem
 {
@@ -10,7 +10,7 @@ namespace HeatSystem
     /// BreakPoint 检测到任意属于箱子的 Collider 进入即触发。
     /// </summary>
     [RequireComponent(typeof(Rigidbody))]
-    [RequireComponent(typeof(BoxCollider))]
+   // [RequireComponent(typeof(BoxCollider))]
     public class PushableBox : MonoBehaviour
     {
         [Header("箱子设置")]
@@ -50,10 +50,10 @@ namespace HeatSystem
             if (rb != null)
                 rb.constraints = RigidbodyConstraints.FreezeRotation;
 
-            // 确保本体有碰撞体（用于物理推动）
-            var col = GetComponent<BoxCollider>();
-            if (col != null && col.isTrigger)
-                col.isTrigger = false; // 本体不参与触发，子触点才是 trigger
+            //// 确保本体有碰撞体（用于物理推动）
+            //var col = GetComponent<BoxCollider>();
+            //if (col != null && col.isTrigger)
+            //    col.isTrigger = false; // 本体不参与触发，子触点才是 trigger
 
             lastPosition = transform.position;
         }
@@ -125,8 +125,8 @@ namespace HeatSystem
             if (!Application.isPlaying)
                 lastPosition = transform.position;
 
-            Gizmos.color = Color.cyan;
-            Gizmos.DrawWireCube(transform.position, GetComponent<BoxCollider>()?.size ?? Vector3.one * 0.5f);
+            //Gizmos.color = Color.cyan;
+            //Gizmos.DrawWireCube(transform.position, GetComponent<BoxCollider>()?.size ?? Vector3.one * 0.5f);
 
             if (_lastMoveDirection.magnitude > 0.01f)
             {
