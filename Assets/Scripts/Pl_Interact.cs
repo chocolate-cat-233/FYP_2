@@ -151,7 +151,7 @@ public class Pl_Interact : MonoBehaviour
                 return;
             }
 
-            if (layer == LayerMask.NameToLayer("Pump"))
+            if (interactable.gameObject.layer == LayerMask.NameToLayer("Pump"))
             {
                 HandlePump(interactable.gameObject);
                 return;
