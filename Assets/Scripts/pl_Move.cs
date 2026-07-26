@@ -123,7 +123,12 @@ public sealed class pl_Move : MonoBehaviour
         SnapOnGround();
 
         Vector3 appliedMovement = transform.position - positionBeforeMovement;
-        ReportHorizontalMovementApplied(appliedMovement);
+        appliedMovement.y = 0f;
+
+        if (appliedMovement.sqrMagnitude > InputDeadZone * InputDeadZone)
+        {
+            MovementApplied?.Invoke(appliedMovement);
+        }
     }
 
     public void MoveToTarget(
@@ -178,16 +183,6 @@ public sealed class pl_Move : MonoBehaviour
         if (horizontalMovementDriver == driver)
         {
             horizontalMovementDriver = null;
-        }
-    }
-
-    internal void ReportHorizontalMovementApplied(Vector3 worldDelta)
-    {
-        worldDelta.y = 0f;
-
-        if (worldDelta.sqrMagnitude > InputDeadZone * InputDeadZone)
-        {
-            MovementApplied?.Invoke(worldDelta);
         }
     }
 

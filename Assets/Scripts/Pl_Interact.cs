@@ -53,17 +53,10 @@ public class Pl_Interact : MonoBehaviour
             return;
         }
 
-        Vector3 positionBeforeFollow = transform.position;
         Vector3 playerPosition =
             activeMovable.transform.position + playerOffsetFromMovable;
         playerPosition.y = transform.position.y;
         transform.position = playerPosition;
-
-        if (playerMovement != null)
-        {
-            playerMovement.ReportHorizontalMovementApplied(
-                playerPosition - positionBeforeFollow);
-        }
     }
 
     private void OnTriggerEnter(Collider other)
