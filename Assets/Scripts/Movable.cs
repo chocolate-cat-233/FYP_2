@@ -24,11 +24,16 @@ public class Movable : MonoBehaviour
             return;
         }
 
-        unlockedConstraints = movableRigidbody.constraints;
+        unlockedConstraints =
+            movableRigidbody.constraints &
+            ~RigidbodyConstraints.FreezePositionY;
         unlockedInterpolation = movableRigidbody.interpolation;
+        movableRigidbody.useGravity = true;
         movableRigidbody.constraints =
-            unlockedConstraints | RigidbodyConstraints.FreezePosition;
-        movableRigidbody.Sleep();
+            unlockedConstraints |
+            RigidbodyConstraints.FreezePositionX |
+            RigidbodyConstraints.FreezePositionZ;
+        movableRigidbody.WakeUp();
     }
 
     private void OnDisable()
@@ -51,11 +56,12 @@ public class Movable : MonoBehaviour
 
         if (canMove)
         {
-            movableRigidbody.linearVelocity = Vector3.zero;
+            Vector3 currentVelocity = movableRigidbody.linearVelocity;
+            movableRigidbody.linearVelocity =
+                new Vector3(0f, currentVelocity.y, 0f);
             movableRigidbody.angularVelocity = Vector3.zero;
             movableRigidbody.constraints =
                 unlockedConstraints |
-                RigidbodyConstraints.FreezePositionY |
                 RigidbodyConstraints.FreezeRotation;
             movableRigidbody.interpolation =
                 RigidbodyInterpolation.Interpolate;
@@ -63,12 +69,16 @@ public class Movable : MonoBehaviour
             return;
         }
 
-        movableRigidbody.linearVelocity = Vector3.zero;
+        Vector3 releasedVelocity = movableRigidbody.linearVelocity;
+        movableRigidbody.linearVelocity =
+            new Vector3(0f, releasedVelocity.y, 0f);
         movableRigidbody.angularVelocity = Vector3.zero;
         movableRigidbody.interpolation = unlockedInterpolation;
         movableRigidbody.constraints =
-            unlockedConstraints | RigidbodyConstraints.FreezePosition;
-        movableRigidbody.Sleep();
+            unlockedConstraints |
+            RigidbodyConstraints.FreezePositionX |
+            RigidbodyConstraints.FreezePositionZ;
+        movableRigidbody.WakeUp();
     }
 
     private void FixedUpdate()
@@ -85,7 +95,11 @@ public class Movable : MonoBehaviour
             return;
         }
 
-        movableRigidbody.linearVelocity = desiredHorizontalVelocity;
+        Vector3 currentVelocity = movableRigidbody.linearVelocity;
+        movableRigidbody.linearVelocity = new Vector3(
+            desiredHorizontalVelocity.x,
+            currentVelocity.y,
+            desiredHorizontalVelocity.z);
     }
 
     public Transform GetStandPoint(Transform playerTransform)
