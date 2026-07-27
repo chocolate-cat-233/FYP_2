@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"C:/Users/Delta/AppData/Local/Unity/Editor\" -name \"Editor.log\" 2>/dev/null | head -3; find \"C:/Users/Delta/AppData/LocalLow/Unity\" -name \"Editor.log\" 2>/dev/null | head -3)",
+      "Read(//c/Users/Delta/AppData/Local/Unity/Editor/**)",
+      "Read(//c/Users/Delta/AppData/LocalLow/Unity/**)",
+      "Bash(grep -i \"RevealDisc\\\\|error CS\" \"C:/Users/Delta/AppData/Local/Unity/Editor/Editor.log\" | tail -30)",
+      "Bash(grep -a -i \"RevealDisc\\\\|error CS\" \"C:/Users/Delta/AppData/Local/Unity/Editor/Editor.log\" | tail -30)",
+      "Bash(grep -a -i \"error CS\" \"C:/Users/Delta/AppData/Local/Unity/Editor/Editor.log\" | tail -5)"
+    ]
+  }
+}
