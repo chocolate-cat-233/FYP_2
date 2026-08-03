@@ -1,5 +1,36 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1743605326625317687
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3597869446940564782}
+  m_Layer: 0
+  m_Name: BombThrowOrigin
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3597869446940564782
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1743605326625317687}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 1.452, z: 0.931}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 104739675346536824}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &4389053944383820437
 GameObject:
   m_ObjectHideFlags: 0
@@ -156,6 +187,9 @@ GameObject:
   - component: {fileID: 3425685216533978587}
   - component: {fileID: 8514364833118685906}
   - component: {fileID: 1890467919304667735}
+  - component: {fileID: 4292554052087549936}
+  - component: {fileID: 1768237869101731269}
+  - component: {fileID: 4904163505106710771}
   m_Layer: 0
   m_Name: Player
   m_TagString: Player
@@ -178,6 +212,7 @@ Transform:
   m_Children:
   - {fileID: 6780274557363565275}
   - {fileID: 2700457529377985186}
+  - {fileID: 3597869446940564782}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!33 &3516038145315043305
@@ -272,7 +307,7 @@ MonoBehaviour:
   stateManager: {fileID: 8514364833118685906}
   cameraTransform: {fileID: 0}
   playerCollider: {fileID: 7820222200135427694}
-  maxMoveSpeed: 3
+  maxMoveSpeed: 2.5
   accelerationTime: 0.7
   decelerationTime: 0.15
   maxTurnSpeed: 720
@@ -354,3 +389,67 @@ MonoBehaviour:
   stateManager: {fileID: 8514364833118685906}
   movablePlayerState: {fileID: 11400000, guid: e76ca1a9522c4f8cb90b02e5c7e63808, type: 2}
   interactableTag: Interactable
+--- !u!114 &4292554052087549936
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8194552205266947397}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6527bc44aade5254a877981583a8819c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  bombPrefab: {fileID: 0}
+  throwOrigin: {fileID: 3597869446940564782}
+  cameraTransform: {fileID: 0}
+  maximumThrowDistance: 8
+  assumedDropHeight: 1.5
+  useCameraDirection: 0
+  keyboardThrowKey: 31
+  maximumThrowLockDuration: 3
+--- !u!114 &1768237869101731269
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8194552205266947397}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 53890fa0bbc9d8d4781021bd3ce38bbf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  respawnDelay: 1.5
+  respawnPoint: {fileID: 0}
+  controlsToDisable:
+  - {fileID: 7639170213641006266}
+  - {fileID: 1890467919304667735}
+  - {fileID: 4292554052087549936}
+  visualRoot: {fileID: 104739675346536824}
+  knockedOutEuler: {x: 0, y: 0, z: 90}
+  onKnockedOut:
+    m_PersistentCalls:
+      m_Calls: []
+  onRespawned:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!114 &4904163505106710771
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8194552205266947397}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 85270f85c0c15fa40b49a08f655bd76b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  voidHeight: -5
+  respawnPoint: {fileID: 0}
+  retriggerDelay: 0.5
+  onVoidRespawned:
+    m_PersistentCalls:
+      m_Calls: []
