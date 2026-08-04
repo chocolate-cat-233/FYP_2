@@ -3,6 +3,7 @@ using UnityEngine.InputSystem;
 using UnityEngine.Serialization;
 using System.Text;
 using SuperFinalFuse.BombThrowing.Buffs;
+using SuperFinalFuse.BombThrowing.Interactions;
 
 namespace SuperFinalFuse.BombThrowing
 {
@@ -120,8 +121,11 @@ namespace SuperFinalFuse.BombThrowing
                 Quaternion.LookRotation(direction, Vector3.up));
             activeBombInstanceId = activeBomb.GetInstanceID();
             activeBombLaunchTime = Time.unscaledTime;
-            activeBomb.Exploded += HandleBombExploded;
-            activeBomb.Launch(CalculateLaunchVelocity(direction), gameObject);
+            activeBomb.Completed += HandleBombCompleted;
+            activeBomb.Launch(
+                CalculateLaunchVelocity(direction),
+                gameObject,
+                BombOwnerType.Player);
             successfulThrowCount++;
             lastDiagnosticEvent =
                 $"Throw succeeded: bomb #{activeBombInstanceId}";
@@ -158,7 +162,7 @@ namespace SuperFinalFuse.BombThrowing
                    Vector3.up * upwardSpeed;
         }
 
-        private void HandleBombExploded(BombProjectile bomb)
+        private void HandleBombCompleted(BombProjectile bomb)
         {
             int completedInstanceId = bomb != null
                 ? bomb.GetInstanceID()
@@ -166,7 +170,7 @@ namespace SuperFinalFuse.BombThrowing
 
             if (bomb != null)
             {
-                bomb.Exploded -= HandleBombExploded;
+                bomb.Completed -= HandleBombCompleted;
             }
 
             if (completedInstanceId == activeBombInstanceId)
@@ -221,7 +225,7 @@ namespace SuperFinalFuse.BombThrowing
         {
             if (activeBomb != null)
             {
-                activeBomb.Exploded -= HandleBombExploded;
+                activeBomb.Completed -= HandleBombCompleted;
             }
 
             activeBomb = null;
@@ -301,7 +305,7 @@ namespace SuperFinalFuse.BombThrowing
         {
             if (activeBomb != null)
             {
-                activeBomb.Exploded -= HandleBombExploded;
+                activeBomb.Completed -= HandleBombCompleted;
             }
         }
     }

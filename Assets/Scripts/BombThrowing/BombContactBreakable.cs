@@ -1,10 +1,12 @@
 using UnityEngine;
 using UnityEngine.Events;
+using SuperFinalFuse.BombThrowing.Interactions;
 
 namespace SuperFinalFuse.BombThrowing
 {
     [DisallowMultipleComponent]
-    public sealed class BombContactBreakable : MonoBehaviour
+    public sealed class BombContactBreakable : MonoBehaviour,
+        IBombDirectHitReceiver
     {
         [SerializeField] private Renderer[] renderersToHide;
         [SerializeField] private Collider[] collidersToDisable;
@@ -56,6 +58,17 @@ namespace SuperFinalFuse.BombThrowing
             }
 
             onBroken?.Invoke();
+        }
+
+        public BombHitResult ReceiveBombHit(BombDirectHit hit)
+        {
+            if (IsBroken)
+            {
+                return BombHitResult.Ignore;
+            }
+
+            Break(hit.Point);
+            return BombHitResult.Explode;
         }
     }
 }

@@ -1,9 +1,11 @@
 using UnityEngine;
+using SuperFinalFuse.BombThrowing.Interactions;
 
 namespace SuperFinalFuse.BombThrowing.Buffs
 {
     [DisallowMultipleComponent]
-    public sealed class BombTeleportTarget : MonoBehaviour
+    public sealed class BombTeleportTarget : MonoBehaviour,
+        IBombDirectHitReceiver
     {
         [SerializeField] private Transform destination;
         [SerializeField] private bool copyDestinationRotation = true;
@@ -45,6 +47,18 @@ namespace SuperFinalFuse.BombThrowing.Buffs
             buffs.GrantBombBlastImmunity(postTeleportImmunityDuration);
             buffs.TryConsume(BombBuffType.TeleportBomb);
             return true;
+        }
+
+        public BombHitResult ReceiveBombHit(BombDirectHit hit)
+        {
+            if (hit.OwnerType != BombOwnerType.Player)
+            {
+                return BombHitResult.Ignore;
+            }
+
+            return TryTeleport(hit.Owner)
+                ? BombHitResult.Explode
+                : BombHitResult.Ignore;
         }
     }
 }
