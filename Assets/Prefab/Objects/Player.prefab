@@ -25,7 +25,7 @@ Transform:
   m_GameObject: {fileID: 1743605326625317687}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.452, z: 0.931}
+  m_LocalPosition: {x: 0, y: 0.82, z: 0.931}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -190,6 +190,7 @@ GameObject:
   - component: {fileID: 4292554052087549936}
   - component: {fileID: 1768237869101731269}
   - component: {fileID: 4904163505106710771}
+  - component: {fileID: 5171812353863036520}
   m_Layer: 0
   m_Name: Player
   m_TagString: Player
@@ -401,11 +402,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6527bc44aade5254a877981583a8819c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  bombPrefab: {fileID: 0}
+  bombPrefab: {fileID: 6973244640082355146, guid: 4b07bdc868af5f146866ffab25a61dd8, type: 3}
   throwOrigin: {fileID: 3597869446940564782}
   cameraTransform: {fileID: 0}
-  maximumThrowDistance: 8
-  assumedDropHeight: 1.5
+  throwSpeed: 5
+  trajectory: 1
+  angledThrowDegrees: 15.8
+  fallbackThrowHeight: 3
   useCameraDirection: 0
   keyboardThrowKey: 31
   maximumThrowLockDuration: 3
@@ -453,3 +456,16 @@ MonoBehaviour:
   onVoidRespawned:
     m_PersistentCalls:
       m_Calls: []
+--- !u!114 &5171812353863036520
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8194552205266947397}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 712ca509683cd9a41a9b2dff3c532737, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  activeBuffs: []

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 using SuperFinalFuse.BombThrowing.Interactions;
@@ -34,13 +35,13 @@ namespace SuperFinalFuse.BombThrowing
         [SerializeField] private UnityEvent onExploded;
 
         private Rigidbody bombBody;
-        private Collider bombCollider;
+        private Collider[] bombColliders;
+        private bool[] initialColliderEnabledStates;
         private GameObject owner;
         private bool hasSentCompletion;
         private float remainingLifetime;
         private bool initialUseGravity;
         private bool initialIsKinematic;
-        private bool initialColliderEnabled;
         private Transform captureAnchor;
         private Vector3 scaleBeforeCapture;
 
@@ -69,10 +70,14 @@ namespace SuperFinalFuse.BombThrowing
         private void Awake()
         {
             bombBody = GetComponent<Rigidbody>();
-            bombCollider = GetComponent<Collider>();
+            bombColliders = GetComponentsInChildren<Collider>();
+            initialColliderEnabledStates = new bool[bombColliders.Length];
+            for (int i = 0; i < bombColliders.Length; i++)
+            {
+                initialColliderEnabledStates[i] = bombColliders[i].enabled;
+            }
             initialUseGravity = bombBody.useGravity;
             initialIsKinematic = bombBody.isKinematic;
-            initialColliderEnabled = bombCollider.enabled;
             remainingLifetime = maximumLifetime;
             state = BombProjectileState.Flying;
         }
@@ -126,17 +131,58 @@ namespace SuperFinalFuse.BombThrowing
             captureAnchor = null;
             remainingLifetime = maximumLifetime;
             transform.SetParent(null, true);
-            bombCollider.enabled = initialColliderEnabled;
+            RestoreBombColliders();
             bombBody.isKinematic = initialIsKinematic;
             bombBody.useGravity = initialUseGravity;
             bombBody.linearVelocity = velocity;
 
-            Collider[] ownerColliders = owner != null
-                ? owner.GetComponentsInChildren<Collider>()
-                : Array.Empty<Collider>();
-            foreach (Collider ownerCollider in ownerColliders)
+            Collider[] ownerColliders;
+            if (owner == null)
             {
-                Physics.IgnoreCollision(bombCollider, ownerCollider, true);
+                ownerColliders = Array.Empty<Collider>();
+            }
+            else if (ownerType == BombOwnerType.Player)
+            {
+                // The player consists of several child colliders, all of which
+                // must be ignored by the freshly thrown bomb.
+                ownerColliders = owner.GetComponentsInChildren<Collider>();
+            }
+            else
+            {
+                // A generator may be placed on a larger mechanism hierarchy.
+                // Never ignore every descendant here, or unrelated rocks and
+                // iron blocks below that hierarchy would become non-colliding.
+                ownerColliders = owner.GetComponents<Collider>();
+            }
+
+            IgnoreCollisionsWith(ownerColliders);
+        }
+
+        public void IgnoreCollisionsWith(IEnumerable<Collider> colliders)
+        {
+            if (bombColliders == null || colliders == null)
+            {
+                return;
+            }
+
+            foreach (Collider ownerCollider in colliders)
+            {
+                if (ownerCollider == null)
+                {
+                    continue;
+                }
+
+                foreach (Collider projectileCollider in bombColliders)
+                {
+                    if (projectileCollider != null &&
+                        ownerCollider != projectileCollider)
+                    {
+                        Physics.IgnoreCollision(
+                            projectileCollider,
+                            ownerCollider,
+                            true);
+                    }
+                }
             }
         }
 
@@ -180,9 +226,7 @@ namespace SuperFinalFuse.BombThrowing
         {
             if (state != BombProjectileState.Flying ||
                 contactedCollider == null ||
-                owner != null &&
-                (contactedCollider.gameObject == owner ||
-                 contactedCollider.transform.IsChildOf(owner.transform)))
+                IsOwnerCollider(contactedCollider))
             {
                 return;
             }
@@ -216,6 +260,22 @@ namespace SuperFinalFuse.BombThrowing
             }
         }
 
+        private bool IsOwnerCollider(Collider contactedCollider)
+        {
+            if (owner == null || contactedCollider == null)
+            {
+                return false;
+            }
+
+            if (contactedCollider.gameObject == owner)
+            {
+                return true;
+            }
+
+            return ownerType == BombOwnerType.Player &&
+                   contactedCollider.transform.IsChildOf(owner.transform);
+        }
+
         public bool Capture(Transform anchor)
         {
             if (state != BombProjectileState.Flying)
@@ -232,7 +292,7 @@ namespace SuperFinalFuse.BombThrowing
             bombBody.angularVelocity = Vector3.zero;
             bombBody.useGravity = false;
             bombBody.isKinematic = true;
-            bombCollider.enabled = false;
+            SetBombCollidersEnabled(false);
 
             if (captureAnchor != null)
             {
@@ -260,11 +320,34 @@ namespace SuperFinalFuse.BombThrowing
             transform.SetPositionAndRotation(position, rotation);
             bombBody.isKinematic = initialIsKinematic;
             bombBody.useGravity = initialUseGravity;
-            bombCollider.enabled = initialColliderEnabled;
+            RestoreBombColliders();
             bombBody.linearVelocity = velocity;
             state = BombProjectileState.Flying;
             Physics.SyncTransforms();
             return true;
+        }
+
+        private void SetBombCollidersEnabled(bool value)
+        {
+            foreach (Collider projectileCollider in bombColliders)
+            {
+                if (projectileCollider != null)
+                {
+                    projectileCollider.enabled = value;
+                }
+            }
+        }
+
+        private void RestoreBombColliders()
+        {
+            for (int i = 0; i < bombColliders.Length; i++)
+            {
+                if (bombColliders[i] != null)
+                {
+                    bombColliders[i].enabled =
+                        initialColliderEnabledStates[i];
+                }
+            }
         }
 
         [ContextMenu("Disarm Bomb (No Explosion)")]
