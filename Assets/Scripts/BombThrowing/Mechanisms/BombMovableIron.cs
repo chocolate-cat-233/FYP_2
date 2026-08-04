@@ -35,6 +35,10 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         [SerializeField] private LayerMask blockingLayers;
         [Min(0f)]
         [SerializeField] private float collisionSkin = 0.02f;
+        [Min(0f)]
+        [Tooltip("Hard minimum center-to-center distance between iron blocks " +
+                 "in the movement direction. Use 1 for unit-sized blocks.")]
+        [SerializeField] private float minimumIronCenterDistance = 1f;
 
         [Header("Events")]
         [SerializeField] private UnityEvent onMoveStarted;
@@ -50,6 +54,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         private Collider[] ironColliders;
         private bool initialIsKinematic;
         private CollisionDetectionMode initialCollisionDetection;
+        private RigidbodyInterpolation initialInterpolation;
         private Vector3 moveStart;
         private Vector3 moveDirection;
         private float moveElapsed;
@@ -69,6 +74,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
             initialIsKinematic = ironBody.isKinematic;
             initialCollisionDetection = ironBody.collisionDetectionMode;
+            initialInterpolation = ironBody.interpolation;
         }
 
         private void OnEnable()
@@ -159,6 +165,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             }
 
             ironBody.isKinematic = true;
+            ironBody.interpolation = RigidbodyInterpolation.None;
             ironBody.collisionDetectionMode =
                 CollisionDetectionMode.ContinuousSpeculative;
             onMoveStarted?.Invoke();
@@ -175,6 +182,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             // before restoring the body to its normal gravity-driven state.
             if (finishOnNextFixedUpdate)
             {
+                EnforceMinimumIronDistance();
                 FinishMove();
                 return;
             }
@@ -198,10 +206,14 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                     stepDirection,
                     requestedDistance,
                     out bool blocked);
-                ironBody.MovePosition(
-                    currentPosition + stepDirection * allowedDistance);
+                Vector3 nextPosition =
+                    currentPosition + stepDirection * allowedDistance;
+                nextPosition = ClampToMinimumIronDistance(
+                    nextPosition,
+                    out bool minimumDistanceBlocked);
+                ironBody.MovePosition(nextPosition);
 
-                if (blocked)
+                if (blocked || minimumDistanceBlocked)
                 {
                     finishOnNextFixedUpdate = true;
                     return;
@@ -212,6 +224,101 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             {
                 finishOnNextFixedUpdate = true;
             }
+        }
+
+        private Vector3 ClampToMinimumIronDistance(
+            Vector3 candidatePosition,
+            out bool blocked)
+        {
+            blocked = false;
+            if (minimumIronCenterDistance <= 0f)
+            {
+                return candidatePosition;
+            }
+
+            BombMovableIron[] irons = FindObjectsByType<BombMovableIron>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+            Vector3 sideAxis = new Vector3(
+                -moveDirection.z,
+                0f,
+                moveDirection.x).normalized;
+
+            foreach (BombMovableIron other in irons)
+            {
+                if (!IsIronInMovementLane(other, sideAxis))
+                {
+                    continue;
+                }
+
+                Vector3 otherPosition = other.ironBody != null
+                    ? other.ironBody.position
+                    : other.transform.position;
+                // Only an iron located in front of A's movement origin can
+                // block this move.
+                if (Vector3.Dot(
+                        otherPosition - moveStart,
+                        moveDirection) <= 0f)
+                {
+                    continue;
+                }
+
+                float candidateDistance = Vector3.Dot(
+                    otherPosition - candidatePosition,
+                    moveDirection);
+                if (candidateDistance >= minimumIronCenterDistance)
+                {
+                    continue;
+                }
+
+                candidatePosition -= moveDirection *
+                    (minimumIronCenterDistance - candidateDistance);
+                blocked = true;
+            }
+
+            return candidatePosition;
+        }
+
+        private bool IsIronInMovementLane(
+            BombMovableIron other,
+            Vector3 sideAxis)
+        {
+            if (other == null || other == this ||
+                other.ironCollider == null ||
+                !other.ironCollider.enabled)
+            {
+                return false;
+            }
+
+            Bounds ownBounds = GetPhysicsBounds();
+            Bounds otherBounds = other.GetPhysicsBounds();
+            Vector3 delta = otherBounds.center - ownBounds.center;
+            float sideDistance =
+                Mathf.Abs(Vector3.Dot(delta, sideAxis));
+            float sideRadius =
+                ProjectRadius(ownBounds.extents, sideAxis) +
+                ProjectRadius(otherBounds.extents, sideAxis);
+            float verticalDistance = Mathf.Abs(delta.y);
+            float verticalRadius =
+                ownBounds.extents.y + otherBounds.extents.y;
+            return sideDistance < sideRadius &&
+                   verticalDistance < verticalRadius;
+        }
+
+        private void EnforceMinimumIronDistance()
+        {
+            Vector3 correctedPosition = ClampToMinimumIronDistance(
+                ironBody.position,
+                out bool corrected);
+            if (!corrected)
+            {
+                return;
+            }
+
+            // This is the final safety rule: only A is corrected. B is never
+            // moved, assigned velocity, or switched to another body state.
+            ironBody.position = correctedPosition;
+            Physics.SyncTransforms();
         }
 
         private float GetAllowedStepDistance(
@@ -294,7 +401,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             out bool blocked)
         {
             blocked = false;
-            Bounds ownBounds = ironCollider.bounds;
+            Bounds ownBounds = GetPhysicsBounds();
             Vector3 sideAxis =
                 new Vector3(-direction.z, 0f, direction.x).normalized;
             float allowed = requestedDistance;
@@ -311,7 +418,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                     continue;
                 }
 
-                Bounds otherBounds = other.ironCollider.bounds;
+                Bounds otherBounds = other.GetPhysicsBounds();
                 Vector3 delta = otherBounds.center - ownBounds.center;
                 float forwardDistance = Vector3.Dot(delta, direction);
                 if (forwardDistance <= 0f)
@@ -348,6 +455,21 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             return allowed;
         }
 
+        private Bounds GetPhysicsBounds()
+        {
+            Bounds bounds = ironCollider.bounds;
+            if (ironBody != null)
+            {
+                // With Rigidbody interpolation, Transform and Collider.bounds
+                // can visually lag behind the current physics pose. Move the
+                // bounds center onto Rigidbody.position so distance checks and
+                // MovePosition use the same fixed-step coordinate space.
+                bounds.center += ironBody.position - transform.position;
+            }
+
+            return bounds;
+        }
+
         private static float ProjectRadius(
             Vector3 extents,
             Vector3 axis)
@@ -369,11 +491,19 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
             if (ironCollider is not BoxCollider box)
             {
+                if (ironBody != null)
+                {
+                    center += ironBody.position - transform.position;
+                }
                 return;
             }
 
             Vector3 scale = box.transform.lossyScale;
             center = box.transform.TransformPoint(box.center);
+            if (ironBody != null)
+            {
+                center += ironBody.position - transform.position;
+            }
             halfExtents = Vector3.Scale(
                 box.size * 0.5f,
                 new Vector3(
@@ -422,6 +552,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
             ironBody.isKinematic = initialIsKinematic;
             ironBody.collisionDetectionMode = initialCollisionDetection;
+            ironBody.interpolation = initialInterpolation;
             if (!ironBody.isKinematic)
             {
                 ironBody.linearVelocity = Vector3.zero;
@@ -446,6 +577,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                 ironBody.isKinematic = initialIsKinematic;
                 ironBody.collisionDetectionMode =
                     initialCollisionDetection;
+                ironBody.interpolation = initialInterpolation;
             }
 
             state = BombMovableIronState.Idle;
