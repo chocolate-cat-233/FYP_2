@@ -430,7 +430,7 @@ MonoBehaviour:
   effectMode: 0
   intactRenderers: []
   intactColliders: []
-  particleEffectPrefab: {fileID: 0}
+  particleEffectPrefab: {fileID: 3414201384968299762, guid: a0ff8467a41ac7b4a8276f0ae7391277, type: 3}
   particleLifetime: 3
   debrisRoot: {fileID: 3799608050531591594}
   debrisImpulseMultiplier: 1
