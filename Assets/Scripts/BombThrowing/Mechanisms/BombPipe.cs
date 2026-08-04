@@ -17,6 +17,11 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         [Header("Pipe route")]
         [Tooltip("Optional position where the captured bomb waits.")]
         [SerializeField] private Transform capturePoint;
+        [Tooltip("Optional second pipe end. If empty, it is mirrored from Exit " +
+                 "across Capture Point, so existing pipes work bidirectionally.")]
+        [SerializeField] private Transform entrance;
+        [Tooltip("One end of the pipe. Its forward direction is used when a bomb " +
+                 "leaves from this end.")]
         [SerializeField] private Transform exit;
         [Min(0f)]
         [SerializeField] private float travelDuration = 1f;
@@ -37,6 +42,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         private BombProjectile lastReleasedBomb;
         private float ignoreReleasedBombUntil;
         private Coroutine travelRoutine;
+        private bool releaseFromExit;
 
         public BombPipeState State => state;
         public BombProjectile CapturedBomb => capturedBomb;
@@ -54,6 +60,9 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             }
 
             Transform anchor = capturePoint != null ? capturePoint : transform;
+            // Capture immediately moves the projectile to the route center, so
+            // remember which end it touched before changing its transform.
+            Vector3 entryPosition = hit.Projectile.transform.position;
             if (!hit.Projectile.Capture(anchor))
             {
                 return BombHitResult.Ignore;
@@ -61,6 +70,12 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
             capturedBomb = hit.Projectile;
             capturedBomb.Completed += HandleCapturedBombCompleted;
+            // A bomb entering through one end must leave through the other.
+            // Compare the actual hit/projectile position with both pipe ends.
+            Vector3 entrancePosition = GetEntrancePosition(anchor.position);
+            releaseFromExit =
+                (entryPosition - entrancePosition).sqrMagnitude <=
+                (entryPosition - exit.position).sqrMagnitude;
             state = BombPipeState.Occupied;
             onBombEntered?.Invoke();
             travelRoutine = StartCoroutine(TravelRoutine());
@@ -94,14 +109,53 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             ignoreReleasedBombUntil =
                 Time.time + releasedBombIgnoreDuration;
 
-            Vector3 direction = exit.forward.sqrMagnitude > 0.001f
-                ? exit.forward.normalized
-                : Vector3.forward;
+            Transform anchor = capturePoint != null ? capturePoint : transform;
+            Vector3 releasePosition;
+            Vector3 direction;
+
+            if (releaseFromExit)
+            {
+                releasePosition = exit.position;
+                direction = exit.forward.sqrMagnitude > 0.001f
+                    ? exit.forward.normalized
+                    : (exit.position - anchor.position).normalized;
+            }
+            else
+            {
+                releasePosition = GetEntrancePosition(anchor.position);
+                direction = GetEntranceDirection(anchor.position);
+            }
+
+            if (direction.sqrMagnitude < 0.001f)
+            {
+                direction = Vector3.forward;
+            }
+
             bomb.Release(
-                exit.position,
+                releasePosition,
                 Quaternion.LookRotation(direction, Vector3.up),
                 direction * exitSpeed);
             onBombReleased?.Invoke();
+        }
+
+        private Vector3 GetEntrancePosition(Vector3 routeCenter)
+        {
+            if (entrance != null)
+            {
+                return entrance.position;
+            }
+
+            return routeCenter * 2f - exit.position;
+        }
+
+        private Vector3 GetEntranceDirection(Vector3 routeCenter)
+        {
+            if (entrance != null && entrance.forward.sqrMagnitude > 0.001f)
+            {
+                return entrance.forward.normalized;
+            }
+
+            return (GetEntrancePosition(routeCenter) - routeCenter).normalized;
         }
 
         private void HandleCapturedBombCompleted(BombProjectile bomb)
@@ -142,13 +196,18 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                 return;
             }
 
-            Vector3 start = capturePoint != null
+            Vector3 center = capturePoint != null
                 ? capturePoint.position
                 : transform.position;
+            Vector3 entrancePosition = GetEntrancePosition(center);
             Gizmos.color = state == BombPipeState.Occupied
                 ? Color.yellow
                 : Color.cyan;
-            Gizmos.DrawLine(start, exit.position);
+            Gizmos.DrawLine(entrancePosition, exit.position);
+            Gizmos.DrawWireSphere(entrancePosition, 0.15f);
+            Gizmos.DrawRay(
+                entrancePosition,
+                GetEntranceDirection(center) * 1.5f);
             Gizmos.DrawWireSphere(exit.position, 0.15f);
             Gizmos.DrawRay(exit.position, exit.forward * 1.5f);
         }

@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
@@ -12,10 +11,12 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         Moving
     }
 
+    [RequireComponent(typeof(Rigidbody))]
     [DisallowMultipleComponent]
     public sealed class BombMovableIron : MonoBehaviour,
         IBombDirectHitReceiver
     {
+        private const int CastBufferSize = 32;
         private static readonly HashSet<BombMovableIron> ActiveIrons =
             new HashSet<BombMovableIron>();
 
@@ -29,9 +30,15 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
 
         [Header("Obstruction")]
+        [Tooltip("Scene geometry that stops horizontal iron movement. Other " +
+                 "BombMovableIron objects always block, regardless of layer.")]
         [SerializeField] private LayerMask blockingLayers;
         [Min(0f)]
         [SerializeField] private float collisionSkin = 0.02f;
+        [Min(0f)]
+        [Tooltip("Hard minimum center-to-center distance between iron blocks " +
+                 "in the movement direction. Use 1 for unit-sized blocks.")]
+        [SerializeField] private float minimumIronCenterDistance = 1f;
 
         [Header("Events")]
         [SerializeField] private UnityEvent onMoveStarted;
@@ -39,49 +46,48 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
         [SerializeField, HideInInspector]
         private BombMovableIronState state;
-        private Collider ironCollider;
+
+        private readonly RaycastHit[] castHits =
+            new RaycastHit[CastBufferSize];
         private Rigidbody ironBody;
-        private bool initialIsKinematic;
+        private Collider ironCollider;
         private Collider[] ironColliders;
-        private BombMovableIron[] movementObstacles;
+        private bool initialIsKinematic;
+        private CollisionDetectionMode initialCollisionDetection;
+        private RigidbodyInterpolation initialInterpolation;
+        private Vector3 moveStart;
+        private Vector3 moveDirection;
+        private float moveElapsed;
+        private bool finishOnNextFixedUpdate;
 
         public BombMovableIronState State => state;
 
         private void Awake()
         {
+            ironBody = GetComponent<Rigidbody>();
             ironCollider = GetComponent<Collider>();
             if (ironCollider == null)
             {
                 ironCollider = GetComponentInChildren<Collider>();
             }
-            ironBody = GetComponent<Rigidbody>();
             ironColliders = GetComponentsInChildren<Collider>(true);
-            if (ironBody != null)
-            {
-                initialIsKinematic = ironBody.isKinematic;
-            }
+
+            initialIsKinematic = ironBody.isKinematic;
+            initialCollisionDetection = ironBody.collisionDetectionMode;
+            initialInterpolation = ironBody.interpolation;
         }
 
         private void OnEnable()
         {
             foreach (BombMovableIron other in ActiveIrons)
             {
-                SetPairCollisionIgnored(other, true);
+                SetIronCollisionIgnored(other, true);
             }
 
             ActiveIrons.Add(this);
         }
 
-        private void OnDisable()
-        {
-            ActiveIrons.Remove(this);
-            foreach (BombMovableIron other in ActiveIrons)
-            {
-                SetPairCollisionIgnored(other, false);
-            }
-        }
-
-        private void SetPairCollisionIgnored(
+        private void SetIronCollisionIgnored(
             BombMovableIron other,
             bool ignored)
         {
@@ -91,21 +97,18 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                 return;
             }
 
-            foreach (Collider ownCollider in ironColliders)
+            foreach (Collider own in ironColliders)
             {
-                if (ownCollider == null)
+                if (own == null)
                 {
                     continue;
                 }
 
-                foreach (Collider otherCollider in other.ironColliders)
+                foreach (Collider target in other.ironColliders)
                 {
-                    if (otherCollider != null)
+                    if (target != null)
                     {
-                        Physics.IgnoreCollision(
-                            ownCollider,
-                            otherCollider,
-                            ignored);
+                        Physics.IgnoreCollision(own, target, ignored);
                     }
                 }
             }
@@ -124,278 +127,288 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
                 if (direction.sqrMagnitude > 0.001f)
                 {
-                    StartCoroutine(MoveRoutine(direction.normalized));
+                    BeginMove(direction.normalized);
                 }
             }
 
-            // A hit while moving still detonates the bomb, but does not stack
-            // another displacement.
+            // Bombs still explode on a moving iron, but cannot stack another
+            // movement while the current movement is active.
             return BombHitResult.Explode;
         }
 
-        private IEnumerator MoveRoutine(Vector3 direction)
+        private void BeginMove(Vector3 direction)
         {
-            state = BombMovableIronState.Moving;
-            onMoveStarted?.Invoke();
-
-            Vector3 start = transform.position;
-            movementObstacles = FindObjectsByType<BombMovableIron>(
+            // Re-apply at the moment of use as well, so Enter Play Mode options
+            // or a script hot reload cannot leave an iron pair registered but
+            // physically colliding.
+            BombMovableIron[] irons = FindObjectsByType<BombMovableIron>(
                 FindObjectsInactive.Exclude,
                 FindObjectsSortMode.None);
-            float plannedDistance = GetIronSurfaceDistance(
-                direction,
-                moveDistance);
-            Vector3 destination = start + direction * plannedDistance;
+            foreach (BombMovableIron other in irons)
+            {
+                if (other != null && other != this)
+                {
+                    SetIronCollisionIgnored(other, true);
+                }
+            }
 
-            if (ironBody != null)
+            state = BombMovableIronState.Moving;
+            moveStart = ironBody.position;
+            moveDirection = direction;
+            moveElapsed = 0f;
+            finishOnNextFixedUpdate = false;
+
+            if (!ironBody.isKinematic)
             {
                 ironBody.linearVelocity = Vector3.zero;
                 ironBody.angularVelocity = Vector3.zero;
-                ironBody.isKinematic = true;
             }
 
-            float elapsed = 0f;
-            bool stoppedByObstacle = false;
-            while (elapsed < moveDuration)
-            {
-                elapsed += Time.deltaTime;
-                float t = Mathf.Clamp01(elapsed / moveDuration);
-                float curvedT = movementCurve != null
-                    ? movementCurve.Evaluate(t)
-                    : t;
-                Vector3 nextPosition = Vector3.LerpUnclamped(
-                    start,
-                    destination,
-                    curvedT);
-
-                Vector3 frameDisplacement = nextPosition - transform.position;
-                float frameDistance = frameDisplacement.magnitude;
-                if (frameDistance > 0.0001f)
-                {
-                    Vector3 frameDirection = frameDisplacement / frameDistance;
-                    float safeFrameDistance = GetAllowedDistance(
-                        frameDirection,
-                        frameDistance);
-                    safeFrameDistance = ClampBeforeIronPenetration(
-                        frameDirection,
-                        safeFrameDistance);
-                    transform.position += frameDirection * safeFrameDistance;
-                    Physics.SyncTransforms();
-
-                    if (safeFrameDistance + 0.0001f < frameDistance)
-                    {
-                        stoppedByObstacle = true;
-                        break;
-                    }
-                }
-                yield return null;
-            }
-
-            if (!stoppedByObstacle)
-            {
-                transform.position = destination;
-            }
-
-            Physics.SyncTransforms();
-            if (ironBody != null)
-            {
-                ironBody.isKinematic = initialIsKinematic;
-            }
-
-            state = BombMovableIronState.Idle;
-            movementObstacles = null;
-            onMoveFinished?.Invoke();
+            ironBody.isKinematic = true;
+            ironBody.interpolation = RigidbodyInterpolation.None;
+            ironBody.collisionDetectionMode =
+                CollisionDetectionMode.ContinuousSpeculative;
+            onMoveStarted?.Invoke();
         }
 
-        private float ClampBeforeIronPenetration(
-            Vector3 direction,
-            float requestedDistance)
+        private void FixedUpdate()
         {
-            if (requestedDistance <= 0f ||
-                !WouldOverlapIron(transform.position +
-                                  direction * requestedDistance))
+            if (state != BombMovableIronState.Moving)
             {
-                return requestedDistance;
+                return;
             }
 
-            float low = 0f;
-            float high = requestedDistance;
-            for (int i = 0; i < 12; i++)
+            // Let the previous MovePosition be applied by one physics step
+            // before restoring the body to its normal gravity-driven state.
+            if (finishOnNextFixedUpdate)
             {
-                float middle = (low + high) * 0.5f;
-                Vector3 candidate =
-                    transform.position + direction * middle;
-                if (WouldOverlapIron(candidate))
+                EnforceMinimumIronDistance();
+                FinishMove();
+                return;
+            }
+
+            moveElapsed += Time.fixedDeltaTime;
+            float t = Mathf.Clamp01(moveElapsed / moveDuration);
+            float curvedT = movementCurve != null
+                ? Mathf.Clamp01(movementCurve.Evaluate(t))
+                : t;
+            Vector3 desiredPosition = moveStart +
+                moveDirection * (moveDistance * curvedT);
+            Vector3 currentPosition = ironBody.position;
+            Vector3 displacement = desiredPosition - currentPosition;
+            float requestedDistance = displacement.magnitude;
+
+            if (requestedDistance > 0.0001f)
+            {
+                Vector3 stepDirection =
+                    displacement / requestedDistance;
+                float allowedDistance = GetAllowedStepDistance(
+                    stepDirection,
+                    requestedDistance,
+                    out bool blocked);
+                Vector3 nextPosition =
+                    currentPosition + stepDirection * allowedDistance;
+                nextPosition = ClampToMinimumIronDistance(
+                    nextPosition,
+                    out bool minimumDistanceBlocked);
+                ironBody.MovePosition(nextPosition);
+
+                if (blocked || minimumDistanceBlocked)
                 {
-                    high = middle;
-                }
-                else
-                {
-                    low = middle;
+                    finishOnNextFixedUpdate = true;
+                    return;
                 }
             }
 
-            return Mathf.Max(0f, low - collisionSkin);
+            if (t >= 1f)
+            {
+                finishOnNextFixedUpdate = true;
+            }
         }
 
-        private bool WouldOverlapIron(Vector3 candidateRootPosition)
+        private Vector3 ClampToMinimumIronDistance(
+            Vector3 candidatePosition,
+            out bool blocked)
         {
-            if (ironColliders == null)
+            blocked = false;
+            if (minimumIronCenterDistance <= 0f)
             {
-                return false;
+                return candidatePosition;
             }
 
-            Vector3 rootOffset = candidateRootPosition - transform.position;
-            BombMovableIron[] irons = movementObstacles ??
-                FindObjectsByType<BombMovableIron>(
-                    FindObjectsInactive.Exclude,
-                    FindObjectsSortMode.None);
+            BombMovableIron[] irons = FindObjectsByType<BombMovableIron>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+            Vector3 sideAxis = new Vector3(
+                -moveDirection.z,
+                0f,
+                moveDirection.x).normalized;
+
             foreach (BombMovableIron other in irons)
             {
-                if (other == null || other == this ||
-                    other.ironColliders == null)
+                if (!IsIronInMovementLane(other, sideAxis))
                 {
                     continue;
                 }
 
-                foreach (Collider ownCollider in ironColliders)
+                Vector3 otherPosition = other.ironBody != null
+                    ? other.ironBody.position
+                    : other.transform.position;
+                // Only an iron located in front of A's movement origin can
+                // block this move.
+                if (Vector3.Dot(
+                        otherPosition - moveStart,
+                        moveDirection) <= 0f)
                 {
-                    if (ownCollider == null || !ownCollider.enabled ||
-                        ownCollider.isTrigger)
-                    {
-                        continue;
-                    }
-
-                    Vector3 ownPosition =
-                        ownCollider.transform.position + rootOffset;
-                    Quaternion ownRotation = ownCollider.transform.rotation;
-                    foreach (Collider otherCollider in other.ironColliders)
-                    {
-                        if (otherCollider == null ||
-                            !otherCollider.enabled ||
-                            otherCollider.isTrigger)
-                        {
-                            continue;
-                        }
-
-                        if (Physics.ComputePenetration(
-                            ownCollider,
-                            ownPosition,
-                            ownRotation,
-                            otherCollider,
-                            otherCollider.transform.position,
-                            otherCollider.transform.rotation,
-                            out _,
-                            out _))
-                        {
-                            return true;
-                        }
-                    }
+                    continue;
                 }
+
+                float candidateDistance = Vector3.Dot(
+                    otherPosition - candidatePosition,
+                    moveDirection);
+                if (candidateDistance >= minimumIronCenterDistance)
+                {
+                    continue;
+                }
+
+                candidatePosition -= moveDirection *
+                    (minimumIronCenterDistance - candidateDistance);
+                blocked = true;
             }
 
-            return false;
+            return candidatePosition;
         }
 
-        private float GetAllowedDistance(Vector3 direction)
+        private bool IsIronInMovementLane(
+            BombMovableIron other,
+            Vector3 sideAxis)
         {
-            return GetAllowedDistance(direction, moveDistance);
+            if (other == null || other == this ||
+                other.ironCollider == null ||
+                !other.ironCollider.enabled)
+            {
+                return false;
+            }
+
+            Bounds ownBounds = GetPhysicsBounds();
+            Bounds otherBounds = other.GetPhysicsBounds();
+            Vector3 delta = otherBounds.center - ownBounds.center;
+            float sideDistance =
+                Mathf.Abs(Vector3.Dot(delta, sideAxis));
+            float sideRadius =
+                ProjectRadius(ownBounds.extents, sideAxis) +
+                ProjectRadius(otherBounds.extents, sideAxis);
+            float verticalDistance = Mathf.Abs(delta.y);
+            float verticalRadius =
+                ownBounds.extents.y + otherBounds.extents.y;
+            return sideDistance < sideRadius &&
+                   verticalDistance < verticalRadius;
         }
 
-        private float GetAllowedDistance(
+        private void EnforceMinimumIronDistance()
+        {
+            Vector3 correctedPosition = ClampToMinimumIronDistance(
+                ironBody.position,
+                out bool corrected);
+            if (!corrected)
+            {
+                return;
+            }
+
+            // This is the final safety rule: only A is corrected. B is never
+            // moved, assigned velocity, or switched to another body state.
+            ironBody.position = correctedPosition;
+            Physics.SyncTransforms();
+        }
+
+        private float GetAllowedStepDistance(
             Vector3 direction,
-            float requestedDistance)
+            float requestedDistance,
+            out bool blocked)
         {
+            blocked = false;
             if (ironCollider == null)
             {
                 return requestedDistance;
             }
 
-            float allowed = GetIronSurfaceDistance(
+            float allowedDistance = GetIronSurfaceDistance(
                 direction,
-                requestedDistance);
-            Bounds bounds = ironCollider.bounds;
-            Vector3 center = bounds.center;
-            Vector3 halfExtents = bounds.extents;
-            Quaternion orientation = Quaternion.identity;
+                requestedDistance,
+                out bool ironBlocked);
+            blocked = ironBlocked;
 
-            if (ironCollider is BoxCollider box)
-            {
-                Vector3 scale = box.transform.lossyScale;
-                center = box.transform.TransformPoint(box.center);
-                halfExtents = Vector3.Scale(
-                    box.size * 0.5f,
-                    new Vector3(
-                        Mathf.Abs(scale.x),
-                        Mathf.Abs(scale.y),
-                        Mathf.Abs(scale.z)));
-                orientation = box.transform.rotation;
-            }
-
-            RaycastHit[] hits = Physics.BoxCastAll(
+            GetCastShape(
+                out Vector3 center,
+                out Vector3 halfExtents,
+                out Quaternion orientation);
+            int hitCount = Physics.BoxCastNonAlloc(
                 center,
                 halfExtents,
                 direction,
+                castHits,
                 orientation,
                 requestedDistance + collisionSkin,
                 Physics.AllLayers,
                 QueryTriggerInteraction.Ignore);
 
-            for (int i = 0; i < hits.Length; i++)
+            for (int i = 0; i < hitCount; i++)
             {
-                RaycastHit obstacle = hits[i];
-                if (obstacle.collider == null ||
-                    obstacle.collider.isTrigger ||
-                    obstacle.collider.transform == transform ||
-                    obstacle.collider.transform.IsChildOf(transform))
+                RaycastHit hit = castHits[i];
+                if (!IsBlockingCollider(hit.collider))
                 {
                     continue;
                 }
 
                 BombMovableIron otherIron =
-                    obstacle.collider.GetComponentInParent<BombMovableIron>();
-                bool isAnotherIron =
-                    otherIron != null && otherIron != this;
-                bool isConfiguredObstacle =
-                    (blockingLayers.value &
-                     (1 << obstacle.collider.gameObject.layer)) != 0;
-
-                // A horizontal cast can report the floor already touching the
-                // block at distance zero. Only a surface facing against the
-                // movement direction is a horizontal obstruction.
-                bool facesMovement =
-                    Vector3.Dot(obstacle.normal, direction) < -0.05f;
-
-                // Iron blocks are always solid to one another, independently
-                // from Blocking Layers. A bomb can move one block, but that
-                // block can never push another block as part of the move.
-                if ((!isAnotherIron && !isConfiguredObstacle) ||
-                    !facesMovement)
+                    hit.collider.GetComponentInParent<BombMovableIron>();
+                if (otherIron == null)
                 {
-                    continue;
+                    // Ignore the floor already touching the bottom of the
+                    // block. A wall must overlap the block vertically and face
+                    // against its horizontal movement.
+                    Bounds ownBounds = ironCollider.bounds;
+                    Bounds obstacleBounds = hit.collider.bounds;
+                    bool overlapsVertically =
+                        obstacleBounds.max.y >
+                            ownBounds.min.y + collisionSkin &&
+                        obstacleBounds.min.y <
+                            ownBounds.max.y - collisionSkin;
+                    bool facesMovement =
+                        Vector3.Dot(hit.normal, direction) < -0.05f;
+                    if (!overlapsVertically || !facesMovement)
+                    {
+                        continue;
+                    }
                 }
 
-                allowed = Mathf.Min(
-                    allowed,
-                    Mathf.Max(0f, obstacle.distance - collisionSkin));
+                float safeDistance = Mathf.Max(
+                    0f,
+                    hit.distance - collisionSkin);
+                if (safeDistance < allowedDistance)
+                {
+                    allowedDistance = safeDistance;
+                    blocked = true;
+                }
             }
 
-            return allowed;
+            return allowedDistance;
         }
 
         private float GetIronSurfaceDistance(
             Vector3 direction,
-            float requestedDistance)
+            float requestedDistance,
+            out bool blocked)
         {
-            Bounds ownBounds = ironCollider.bounds;
-            Vector3 horizontalPerpendicular =
+            blocked = false;
+            Bounds ownBounds = GetPhysicsBounds();
+            Vector3 sideAxis =
                 new Vector3(-direction.z, 0f, direction.x).normalized;
             float allowed = requestedDistance;
 
-            BombMovableIron[] irons = movementObstacles ??
-                FindObjectsByType<BombMovableIron>(
-                    FindObjectsInactive.Exclude,
-                    FindObjectsSortMode.None);
+            BombMovableIron[] irons = FindObjectsByType<BombMovableIron>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
             foreach (BombMovableIron other in irons)
             {
                 if (other == null || other == this ||
@@ -405,61 +418,170 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                     continue;
                 }
 
-                Bounds otherBounds = other.ironCollider.bounds;
-                Vector3 centerDelta =
-                    otherBounds.center - ownBounds.center;
-                float forwardCenterDistance =
-                    Vector3.Dot(centerDelta, direction);
-                if (forwardCenterDistance <= 0f)
+                Bounds otherBounds = other.GetPhysicsBounds();
+                Vector3 delta = otherBounds.center - ownBounds.center;
+                float forwardDistance = Vector3.Dot(delta, direction);
+                if (forwardDistance <= 0f)
                 {
                     continue;
                 }
 
-                float ownForwardRadius = ProjectedRadius(
-                    ownBounds.extents,
-                    direction);
-                float otherForwardRadius = ProjectedRadius(
-                    otherBounds.extents,
-                    direction);
-                float sideDistance = Mathf.Abs(Vector3.Dot(
-                    centerDelta,
-                    horizontalPerpendicular));
-                float combinedSideRadius =
-                    ProjectedRadius(
-                        ownBounds.extents,
-                        horizontalPerpendicular) +
-                    ProjectedRadius(
-                        otherBounds.extents,
-                        horizontalPerpendicular);
-                float verticalDistance = Mathf.Abs(centerDelta.y);
-                float combinedVerticalRadius =
+                float sideDistance =
+                    Mathf.Abs(Vector3.Dot(delta, sideAxis));
+                float sideRadius =
+                    ProjectRadius(ownBounds.extents, sideAxis) +
+                    ProjectRadius(otherBounds.extents, sideAxis);
+                float verticalDistance = Mathf.Abs(delta.y);
+                float verticalRadius =
                     ownBounds.extents.y + otherBounds.extents.y;
-
-                // Only blocks located in the same horizontal lane and at an
-                // overlapping height can stop this movement.
-                if (sideDistance >= combinedSideRadius ||
-                    verticalDistance >= combinedVerticalRadius)
+                if (sideDistance >= sideRadius ||
+                    verticalDistance >= verticalRadius)
                 {
                     continue;
                 }
 
-                float surfaceGap = forwardCenterDistance -
-                    ownForwardRadius - otherForwardRadius;
-                allowed = Mathf.Min(
-                    allowed,
-                    Mathf.Max(0f, surfaceGap - collisionSkin));
+                float surfaceDistance = forwardDistance -
+                    ProjectRadius(ownBounds.extents, direction) -
+                    ProjectRadius(otherBounds.extents, direction) -
+                    collisionSkin;
+                float safeDistance = Mathf.Max(0f, surfaceDistance);
+                if (safeDistance < allowed)
+                {
+                    allowed = safeDistance;
+                    blocked = true;
+                }
             }
 
             return allowed;
         }
 
-        private static float ProjectedRadius(
+        private Bounds GetPhysicsBounds()
+        {
+            Bounds bounds = ironCollider.bounds;
+            if (ironBody != null)
+            {
+                // With Rigidbody interpolation, Transform and Collider.bounds
+                // can visually lag behind the current physics pose. Move the
+                // bounds center onto Rigidbody.position so distance checks and
+                // MovePosition use the same fixed-step coordinate space.
+                bounds.center += ironBody.position - transform.position;
+            }
+
+            return bounds;
+        }
+
+        private static float ProjectRadius(
             Vector3 extents,
             Vector3 axis)
         {
             return Mathf.Abs(axis.x) * extents.x +
                    Mathf.Abs(axis.y) * extents.y +
                    Mathf.Abs(axis.z) * extents.z;
+        }
+
+        private void GetCastShape(
+            out Vector3 center,
+            out Vector3 halfExtents,
+            out Quaternion orientation)
+        {
+            Bounds bounds = ironCollider.bounds;
+            center = bounds.center;
+            halfExtents = bounds.extents;
+            orientation = Quaternion.identity;
+
+            if (ironCollider is not BoxCollider box)
+            {
+                if (ironBody != null)
+                {
+                    center += ironBody.position - transform.position;
+                }
+                return;
+            }
+
+            Vector3 scale = box.transform.lossyScale;
+            center = box.transform.TransformPoint(box.center);
+            if (ironBody != null)
+            {
+                center += ironBody.position - transform.position;
+            }
+            halfExtents = Vector3.Scale(
+                box.size * 0.5f,
+                new Vector3(
+                    Mathf.Abs(scale.x),
+                    Mathf.Abs(scale.y),
+                    Mathf.Abs(scale.z)));
+            orientation = box.transform.rotation;
+        }
+
+        private bool IsBlockingCollider(Collider other)
+        {
+            if (other == null || other.isTrigger ||
+                other == ironCollider ||
+                other.transform == transform ||
+                other.transform.IsChildOf(transform))
+            {
+                return false;
+            }
+
+            BombMovableIron otherIron =
+                other.GetComponentInParent<BombMovableIron>();
+            if (otherIron != null)
+            {
+                return otherIron != this;
+            }
+
+            return (blockingLayers.value &
+                    (1 << other.gameObject.layer)) != 0;
+        }
+
+        private void OnCollisionEnter(Collision collision)
+        {
+            if (state == BombMovableIronState.Moving &&
+                IsBlockingCollider(collision.collider))
+            {
+                finishOnNextFixedUpdate = true;
+            }
+        }
+
+        private void FinishMove()
+        {
+            if (state != BombMovableIronState.Moving)
+            {
+                return;
+            }
+
+            ironBody.isKinematic = initialIsKinematic;
+            ironBody.collisionDetectionMode = initialCollisionDetection;
+            ironBody.interpolation = initialInterpolation;
+            if (!ironBody.isKinematic)
+            {
+                ironBody.linearVelocity = Vector3.zero;
+                ironBody.angularVelocity = Vector3.zero;
+            }
+            state = BombMovableIronState.Idle;
+            finishOnNextFixedUpdate = false;
+            onMoveFinished?.Invoke();
+        }
+
+        private void OnDisable()
+        {
+            ActiveIrons.Remove(this);
+            foreach (BombMovableIron other in ActiveIrons)
+            {
+                SetIronCollisionIgnored(other, false);
+            }
+
+            if (ironBody != null &&
+                state == BombMovableIronState.Moving)
+            {
+                ironBody.isKinematic = initialIsKinematic;
+                ironBody.collisionDetectionMode =
+                    initialCollisionDetection;
+                ironBody.interpolation = initialInterpolation;
+            }
+
+            state = BombMovableIronState.Idle;
+            finishOnNextFixedUpdate = false;
         }
 
         private static Vector3 GetDominantWorldAxis(Vector3 direction)

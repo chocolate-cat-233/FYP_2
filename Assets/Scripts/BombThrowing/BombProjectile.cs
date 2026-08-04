@@ -28,7 +28,8 @@ namespace SuperFinalFuse.BombThrowing
         [Min(0f)]
         [SerializeField] private float effectLifetime = 3f;
         [SerializeField] private bool showDebugBlast = true;
-        [SerializeField] private Color debugBlastColor =
+        [SerializeField]
+        private Color debugBlastColor =
             new Color(1f, 0.25f, 0f, 0.35f);
 
         [Header("Events")]
