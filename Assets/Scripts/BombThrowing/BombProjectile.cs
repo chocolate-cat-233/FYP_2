@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.Events;
-using SuperFinalFuse.BombThrowing.Buffs;
+using SuperFinalFuse.BombThrowing.Interactions;
 
 namespace SuperFinalFuse.BombThrowing
 {
@@ -36,31 +36,99 @@ namespace SuperFinalFuse.BombThrowing
         private Rigidbody bombBody;
         private Collider bombCollider;
         private GameObject owner;
-        private bool hasExploded;
         private bool hasSentCompletion;
+        private float remainingLifetime;
+        private bool initialUseGravity;
+        private bool initialIsKinematic;
+        private bool initialColliderEnabled;
+        private Transform captureAnchor;
+        private Vector3 scaleBeforeCapture;
 
+        [SerializeField, HideInInspector]
+        private BombProjectileState state = BombProjectileState.Flying;
+        [SerializeField, HideInInspector]
+        private BombOwnerType ownerType = BombOwnerType.Environment;
+
+        /// <summary>Raised only when this bomb actually produces an explosion.</summary>
         public event Action<BombProjectile> Exploded;
+        /// <summary>
+        /// Raised for every terminal outcome: explosion, disarm, or destruction.
+        /// Throwers should use this event to release inventory locks.
+        /// </summary>
+        public event Action<BombProjectile> Completed;
         public float BlastRadius => blastRadius;
-        public bool HasExploded => hasExploded;
+        public bool HasExploded => state == BombProjectileState.Exploding;
         public GameObject Owner => owner;
+        public BombOwnerType OwnerType => ownerType;
+        public BombProjectileState State => state;
+        public Vector3 Velocity => bombBody != null
+            ? bombBody.linearVelocity
+            : Vector3.zero;
+        public float RemainingLifetime => remainingLifetime;
 
         private void Awake()
         {
             bombBody = GetComponent<Rigidbody>();
             bombCollider = GetComponent<Collider>();
+            initialUseGravity = bombBody.useGravity;
+            initialIsKinematic = bombBody.isKinematic;
+            initialColliderEnabled = bombCollider.enabled;
+            remainingLifetime = maximumLifetime;
+            state = BombProjectileState.Flying;
         }
 
-        private void Start()
+        private void Update()
         {
-            if (maximumLifetime > 0f)
+            if (state != BombProjectileState.Flying || maximumLifetime <= 0f)
             {
-                Invoke(nameof(Explode), maximumLifetime);
+                return;
             }
+
+            remainingLifetime -= Time.deltaTime;
+            if (remainingLifetime <= 0f)
+            {
+                Explode();
+            }
+        }
+
+        private void LateUpdate()
+        {
+            if (state != BombProjectileState.Captured ||
+                captureAnchor == null)
+            {
+                return;
+            }
+
+            // Follow without parenting. Parenting below a non-uniformly scaled
+            // and rotated pipe hierarchy can shear a sphere into an ellipsoid.
+            transform.SetPositionAndRotation(
+                captureAnchor.position,
+                captureAnchor.rotation);
+            transform.localScale = scaleBeforeCapture;
         }
 
         public void Launch(Vector3 velocity, GameObject throwingOwner)
         {
+            BombOwnerType inferredOwnerType = throwingOwner != null
+                ? BombOwnerType.Player
+                : BombOwnerType.Environment;
+            Launch(velocity, throwingOwner, inferredOwnerType);
+        }
+
+        public void Launch(
+            Vector3 velocity,
+            GameObject throwingOwner,
+            BombOwnerType sourceType)
+        {
             owner = throwingOwner;
+            ownerType = sourceType;
+            state = BombProjectileState.Flying;
+            captureAnchor = null;
+            remainingLifetime = maximumLifetime;
+            transform.SetParent(null, true);
+            bombCollider.enabled = initialColliderEnabled;
+            bombBody.isKinematic = initialIsKinematic;
+            bombBody.useGravity = initialUseGravity;
             bombBody.linearVelocity = velocity;
 
             Collider[] ownerColliders = owner != null
@@ -74,19 +142,44 @@ namespace SuperFinalFuse.BombThrowing
 
         private void OnCollisionEnter(Collision collision)
         {
-            HandleContact(collision.collider, true);
+            if (collision.contactCount == 0)
+            {
+                HandleContact(
+                    collision.collider,
+                    transform.position,
+                    -Velocity.normalized,
+                    collision.relativeVelocity,
+                    true);
+                return;
+            }
+
+            ContactPoint contact = collision.GetContact(0);
+            HandleContact(
+                collision.collider,
+                contact.point,
+                contact.normal,
+                collision.relativeVelocity,
+                true);
         }
 
         private void OnTriggerEnter(Collider other)
         {
-            HandleContact(other, false);
+            Vector3 point = other.ClosestPoint(transform.position);
+            Vector3 normal = Velocity.sqrMagnitude > 0.001f
+                ? -Velocity.normalized
+                : Vector3.up;
+            HandleContact(other, point, normal, Velocity, false);
         }
 
         private void HandleContact(
             Collider contactedCollider,
+            Vector3 point,
+            Vector3 normal,
+            Vector3 relativeVelocity,
             bool isSolidCollision)
         {
-            if (hasExploded || contactedCollider == null ||
+            if (state != BombProjectileState.Flying ||
+                contactedCollider == null ||
                 owner != null &&
                 (contactedCollider.gameObject == owner ||
                  contactedCollider.transform.IsChildOf(owner.transform)))
@@ -94,39 +187,107 @@ namespace SuperFinalFuse.BombThrowing
                 return;
             }
 
-            BombContactBreakable breakable =
-                contactedCollider.GetComponentInParent<BombContactBreakable>();
+            BombDirectHit hit = new BombDirectHit(
+                this,
+                contactedCollider,
+                point,
+                normal,
+                relativeVelocity,
+                isSolidCollision);
+            BombHitResult result = BombInteractionRouter.Route(hit);
 
-            BombTeleportTarget teleportTarget =
-                contactedCollider.GetComponentInParent<BombTeleportTarget>();
-            if (teleportTarget != null && teleportTarget.TryTeleport(owner))
+            switch (result)
             {
-                Explode();
+                case BombHitResult.ContinueFlight:
+                case BombHitResult.Capture:
+                    return;
+                case BombHitResult.Explode:
+                    Explode();
+                    return;
+                case BombHitResult.Disarm:
+                    Disarm();
+                    return;
+                case BombHitResult.Ignore:
+                    if (explodeOnAnyCollision && isSolidCollision)
+                    {
+                        Explode();
+                    }
+                    return;
+            }
+        }
+
+        public bool Capture(Transform anchor)
+        {
+            if (state != BombProjectileState.Flying)
+            {
+                return false;
+            }
+
+            state = BombProjectileState.Captured;
+            captureAnchor = anchor;
+            scaleBeforeCapture = transform.lossyScale;
+            transform.SetParent(null, true);
+            transform.localScale = scaleBeforeCapture;
+            bombBody.linearVelocity = Vector3.zero;
+            bombBody.angularVelocity = Vector3.zero;
+            bombBody.useGravity = false;
+            bombBody.isKinematic = true;
+            bombCollider.enabled = false;
+
+            if (captureAnchor != null)
+            {
+                transform.SetPositionAndRotation(
+                    captureAnchor.position,
+                    captureAnchor.rotation);
+            }
+
+            return true;
+        }
+
+        public bool Release(
+            Vector3 position,
+            Quaternion rotation,
+            Vector3 velocity)
+        {
+            if (state != BombProjectileState.Captured)
+            {
+                return false;
+            }
+
+            captureAnchor = null;
+            transform.SetParent(null, true);
+            transform.localScale = scaleBeforeCapture;
+            transform.SetPositionAndRotation(position, rotation);
+            bombBody.isKinematic = initialIsKinematic;
+            bombBody.useGravity = initialUseGravity;
+            bombCollider.enabled = initialColliderEnabled;
+            bombBody.linearVelocity = velocity;
+            state = BombProjectileState.Flying;
+            Physics.SyncTransforms();
+            return true;
+        }
+
+        [ContextMenu("Disarm Bomb (No Explosion)")]
+        public void Disarm()
+        {
+            if (IsTerminalState())
+            {
                 return;
             }
 
-            if (breakable != null)
-            {
-                breakable.Break(transform.position);
-                Explode();
-                return;
-            }
-
-            if (explodeOnAnyCollision && isSolidCollision)
-            {
-                Explode();
-            }
+            state = BombProjectileState.Disarmed;
+            SendCompletionOnce();
+            Destroy(gameObject);
         }
 
         public void Explode()
         {
-            if (hasExploded)
+            if (IsTerminalState())
             {
                 return;
             }
 
-            hasExploded = true;
-            CancelInvoke();
+            state = BombProjectileState.Exploding;
             Vector3 center = transform.position;
 
             if (explosionEffectPrefab != null)
@@ -150,14 +311,28 @@ namespace SuperFinalFuse.BombThrowing
                 debugBlastColor);
 
             onExploded?.Invoke();
+            Exploded?.Invoke(this);
             SendCompletionOnce();
             Destroy(gameObject);
+        }
+
+        private bool IsTerminalState()
+        {
+            return state == BombProjectileState.Exploding ||
+                   state == BombProjectileState.Disarmed ||
+                   state == BombProjectileState.Destroyed;
         }
 
         private void OnDestroy()
         {
             // Also unlock the thrower if this projectile is removed by an
             // external system, hierarchy cleanup, or an unexpected lifetime.
+            if (state != BombProjectileState.Exploding &&
+                state != BombProjectileState.Disarmed)
+            {
+                state = BombProjectileState.Destroyed;
+            }
+
             SendCompletionOnce();
         }
 
@@ -169,7 +344,7 @@ namespace SuperFinalFuse.BombThrowing
             }
 
             hasSentCompletion = true;
-            Exploded?.Invoke(this);
+            Completed?.Invoke(this);
         }
 
         private void OnDrawGizmosSelected()
