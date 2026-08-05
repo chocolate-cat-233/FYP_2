@@ -162,6 +162,7 @@ MonoBehaviour:
   effectLifetime: 3
   showDebugBlast: 1
   debugBlastColor: {r: 1, g: 0.25, b: 0, a: 0.35}
+  explosionSound: {fileID: 11400000, guid: af0d581366dfcd24ebde5eab01277218, type: 2}
   onExploded:
     m_PersistentCalls:
       m_Calls: []

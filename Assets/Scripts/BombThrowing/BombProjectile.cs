@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
+using SuperFinalFuse.AudioSystem;
 using SuperFinalFuse.BombThrowing.Interactions;
 
 namespace SuperFinalFuse.BombThrowing
@@ -31,6 +32,9 @@ namespace SuperFinalFuse.BombThrowing
         [SerializeField]
         private Color debugBlastColor =
             new Color(1f, 0.25f, 0f, 0.35f);
+
+        [Header("Audio")]
+        [SerializeField] private AudioDefinition explosionSound;
 
         [Header("Events")]
         [SerializeField] private UnityEvent onExploded;
@@ -392,6 +396,11 @@ namespace SuperFinalFuse.BombThrowing
 
             state = BombProjectileState.Exploding;
             Vector3 center = transform.position;
+
+            if (ownerType == BombOwnerType.Player)
+            {
+                AudioManager.Instance.Play(explosionSound, center);
+            }
 
             if (explosionEffectPrefab != null)
             {

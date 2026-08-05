@@ -6,6 +6,14 @@ public sealed class pl_Move : MonoBehaviour
     private const string GroundTag = "Ground";
     private const float InputDeadZone = 0.0001f;
     private const float RayOriginOffset = 0.001f;
+    private const float GroundProbeRadiusScale = 0.75f;
+    private const float SameWallNormalDotThreshold = 0.99f;
+    private static readonly Vector3[] GroundProbeDirections =
+    {
+        Vector3.forward,
+        new Vector3(0.8660254f, 0f, -0.5f),
+        new Vector3(-0.8660254f, 0f, -0.5f)
+    };
 
     [Header("References")]
     [SerializeField] private InputManager inputManager;
@@ -48,6 +56,7 @@ public sealed class pl_Move : MonoBehaviour
     private Vector3 lockedMoveForward = Vector3.forward;
     private Vector3 moveTarget;
     private Quaternion moveTargetRotation = Quaternion.identity;
+    private readonly RaycastHit[] wallHitBuffer = new RaycastHit[16];
     private readonly RaycastHit[] groundHitBuffer = new RaycastHit[32];
     private Action<Vector3> horizontalMovementDriver;
 
@@ -316,13 +325,16 @@ public sealed class pl_Move : MonoBehaviour
             0f);
         Vector3 capsuleOffset =
             playerCollider.transform.up * capsuleHalfSegment;
+        float wallCastRadius = Mathf.Max(
+            playerWorldRadius - skin,
+            InputDeadZone);
         float wallDetectionDistance = horizontalMovementDistance + skin;
 
         if (horizontalMovementDistance > InputDeadZone &&
             Physics.CapsuleCast(
                 capsuleCenter + capsuleOffset,
                 capsuleCenter - capsuleOffset,
-                playerWorldRadius,
+                wallCastRadius,
                 horizontalVelocity.normalized,
                 out RaycastHit wallHit,
                 wallDetectionDistance,
@@ -333,6 +345,26 @@ public sealed class pl_Move : MonoBehaviour
                 horizontalVelocity,
                 wallHit.normal);
             horizontalVelocity.y = 0f;
+
+            Vector3 slideDisplacement =
+                horizontalVelocity * deltaTime;
+            if (TryGetSlideWallHit(
+                    capsuleCenter + capsuleOffset,
+                    capsuleCenter - capsuleOffset,
+                    wallCastRadius,
+                    slideDisplacement,
+                    wallHit.normal,
+                    out RaycastHit slideWallHit))
+            {
+                float slideDistance = slideDisplacement.magnitude;
+                float allowedSlideDistance = Mathf.Clamp(
+                    slideWallHit.distance - skin,
+                    0f,
+                    slideDistance);
+                horizontalVelocity *=
+                    allowedSlideDistance / slideDistance;
+            }
+
             velocity = horizontalVelocity + Vector3.up * verticalVelocity;
         }
 
@@ -345,6 +377,74 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         transform.position += velocity * deltaTime;
+    }
+
+    private bool TryGetSlideWallHit(
+        Vector3 capsuleTop,
+        Vector3 capsuleBottom,
+        float capsuleRadius,
+        Vector3 slideDisplacement,
+        Vector3 initialWallNormal,
+        out RaycastHit wallHit)
+    {
+        wallHit = default;
+
+        float slideDistance = slideDisplacement.magnitude;
+        if (slideDistance <= InputDeadZone)
+        {
+            return false;
+        }
+
+        Vector3 slideDirection = slideDisplacement / slideDistance;
+        Vector3 initialHorizontalNormal = Vector3.ProjectOnPlane(
+            initialWallNormal,
+            Vector3.up);
+        if (initialHorizontalNormal.sqrMagnitude > InputDeadZone)
+        {
+            initialHorizontalNormal.Normalize();
+        }
+
+        int hitCount = Physics.CapsuleCastNonAlloc(
+            capsuleTop,
+            capsuleBottom,
+            capsuleRadius,
+            slideDirection,
+            wallHitBuffer,
+            slideDistance + skin,
+            wallMask.value | movableMask.value,
+            QueryTriggerInteraction.Ignore);
+        float nearestHitDistance = float.PositiveInfinity;
+        bool foundWall = false;
+
+        for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
+        {
+            RaycastHit hit = wallHitBuffer[hitIndex];
+            Vector3 hitHorizontalNormal = Vector3.ProjectOnPlane(
+                hit.normal,
+                Vector3.up);
+            bool isInitialWallSurface =
+                initialHorizontalNormal.sqrMagnitude > InputDeadZone &&
+                hitHorizontalNormal.sqrMagnitude > InputDeadZone &&
+                Vector3.Dot(
+                    initialHorizontalNormal,
+                    hitHorizontalNormal.normalized) >=
+                SameWallNormalDotThreshold;
+
+            if (hit.collider == null ||
+                IsPlayerCollider(hit.collider) ||
+                isInitialWallSurface ||
+                Vector3.Dot(hit.normal, slideDirection) >= -InputDeadZone ||
+                hit.distance >= nearestHitDistance)
+            {
+                continue;
+            }
+
+            wallHit = hit;
+            nearestHitDistance = hit.distance;
+            foundWall = true;
+        }
+
+        return foundWall;
     }
 
     private float GetPlayerWorldRadius()
@@ -391,37 +491,50 @@ public sealed class pl_Move : MonoBehaviour
     private bool TryGetGroundHit(out RaycastHit groundHit)
     {
         float currentGroundHeight = transform.position.y - playerHeight / 2f + skin;
-        Vector3 rayOrigin = new Vector3(
+        Vector3 groundProbeCenter = new Vector3(
             transform.position.x,
             currentGroundHeight + stepOffset + RayOriginOffset,
             transform.position.z);
-        int hitCount = Physics.RaycastNonAlloc(
-            rayOrigin,
-            Vector3.down,
-            groundHitBuffer,
-            2000f,
-            Physics.AllLayers,
-            QueryTriggerInteraction.Ignore);
+        float playerWorldRadius = GetPlayerWorldRadius();
+        float groundProbeRadius = Mathf.Min(
+            playerWorldRadius * GroundProbeRadiusScale,
+            Mathf.Max(0f, playerWorldRadius - skin));
 
         groundHit = default;
         bool foundGround = false;
         float nearestHitDistance = float.PositiveInfinity;
 
-        for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
+        for (int probeIndex = 0;
+             probeIndex < GroundProbeDirections.Length;
+             probeIndex++)
         {
-            RaycastHit hit = groundHitBuffer[hitIndex];
+            Vector3 rayOrigin =
+                groundProbeCenter +
+                GroundProbeDirections[probeIndex] * groundProbeRadius;
+            int hitCount = Physics.RaycastNonAlloc(
+                rayOrigin,
+                Vector3.down,
+                groundHitBuffer,
+                2000f,
+                Physics.AllLayers,
+                QueryTriggerInteraction.Ignore);
 
-            if (hit.collider == null ||
-                IsPlayerCollider(hit.collider) ||
-                hit.collider.tag != GroundTag ||
-                hit.distance >= nearestHitDistance)
+            for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
             {
-                continue;
-            }
+                RaycastHit hit = groundHitBuffer[hitIndex];
 
-            groundHit = hit;
-            foundGround = true;
-            nearestHitDistance = hit.distance;
+                if (hit.collider == null ||
+                    IsPlayerCollider(hit.collider) ||
+                    hit.collider.tag != GroundTag ||
+                    hit.distance >= nearestHitDistance)
+                {
+                    continue;
+                }
+
+                groundHit = hit;
+                foundGround = true;
+                nearestHitDistance = hit.distance;
+            }
         }
 
         return foundGround;
