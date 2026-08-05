@@ -151,7 +151,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c9c1a73c7997c414c9c265e5b40fda68, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  blastRadius: 1
+  blastRadius: 0.3
   blastSpeed: 6
   blastLayers:
     serializedVersion: 2
