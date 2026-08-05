@@ -55,6 +55,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         private bool initialIsKinematic;
         private CollisionDetectionMode initialCollisionDetection;
         private RigidbodyInterpolation initialInterpolation;
+        private RigidbodyConstraints idleConstraints;
         private Vector3 moveStart;
         private Vector3 moveDestination;
         private Vector3 moveDirection;
@@ -76,6 +77,12 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             initialIsKinematic = ironBody.isKinematic;
             initialCollisionDetection = ironBody.collisionDetectionMode;
             initialInterpolation = ironBody.interpolation;
+            idleConstraints =
+                ironBody.constraints |
+                RigidbodyConstraints.FreezePositionX |
+                RigidbodyConstraints.FreezePositionZ |
+                RigidbodyConstraints.FreezeRotation;
+            ironBody.constraints = idleConstraints;
         }
 
         private void OnEnable()
@@ -171,6 +178,10 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                 ironBody.angularVelocity = Vector3.zero;
             }
 
+            ironBody.constraints =
+                idleConstraints &
+                ~RigidbodyConstraints.FreezePositionX &
+                ~RigidbodyConstraints.FreezePositionZ;
             ironBody.isKinematic = true;
             ironBody.interpolation = RigidbodyInterpolation.None;
             ironBody.collisionDetectionMode =
@@ -559,6 +570,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                 return;
             }
 
+            ironBody.constraints = idleConstraints;
             ironBody.isKinematic = initialIsKinematic;
             ironBody.collisionDetectionMode = initialCollisionDetection;
             ironBody.interpolation = initialInterpolation;
@@ -583,10 +595,16 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             if (ironBody != null &&
                 state == BombMovableIronState.Moving)
             {
+                ironBody.constraints = idleConstraints;
                 ironBody.isKinematic = initialIsKinematic;
                 ironBody.collisionDetectionMode =
                     initialCollisionDetection;
                 ironBody.interpolation = initialInterpolation;
+            }
+
+            if (ironBody != null)
+            {
+                ironBody.constraints = idleConstraints;
             }
 
             state = BombMovableIronState.Idle;

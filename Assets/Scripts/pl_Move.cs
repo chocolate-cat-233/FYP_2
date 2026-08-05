@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using SuperFinalFuse.BombThrowing.Mechanisms;
 
 public sealed class pl_Move : MonoBehaviour
 {
@@ -59,6 +60,9 @@ public sealed class pl_Move : MonoBehaviour
     private readonly RaycastHit[] wallHitBuffer = new RaycastHit[16];
     private readonly RaycastHit[] groundHitBuffer = new RaycastHit[32];
     private Action<Vector3> horizontalMovementDriver;
+    private BombMovableIron groundIron;
+    private Rigidbody groundIronBody;
+    private Vector3 groundIronPosition;
 
     public bool IsGrounded { get; private set; }
     public bool IsMovingToTarget => isMovingToTarget;
@@ -84,6 +88,7 @@ public sealed class pl_Move : MonoBehaviour
         IsGrounded = false;
         isMovingToTarget = false;
         isMovementReady = true;
+        ClearGroundIron();
 
         stateManager.StateChanged += OnPlayerStateChanged;
         ApplyPlayerState(stateManager.CurrentState);
@@ -102,6 +107,7 @@ public sealed class pl_Move : MonoBehaviour
         IsGrounded = false;
         isMovingToTarget = false;
         isMovementReady = false;
+        ClearGroundIron();
         horizontalMovementDriver?.Invoke(Vector3.zero);
     }
 
@@ -113,6 +119,7 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         float deltaTime = Time.deltaTime;
+        ApplyGroundIronMovement();
 
         if (isMovingToTarget)
         {
@@ -461,6 +468,8 @@ public sealed class pl_Move : MonoBehaviour
     {
         if (TryGetGroundHit(out RaycastHit raycastHit))
         {
+            BombMovableIron hitIron =
+                raycastHit.collider.GetComponentInParent<BombMovableIron>();
             groundNormal = raycastHit.normal;
             float groundHeight = raycastHit.point.y + playerHeight / 2f;
             float bottomDistance = transform.position.y - groundHeight;
@@ -471,24 +480,104 @@ public sealed class pl_Move : MonoBehaviour
             if (reachedGround || canSnapDownSlope)
             {
                 IsGrounded = true;
+                float groundSkin = hitIron != null ? 0f : skin;
                 transform.position = new Vector3(
                     transform.position.x,
-                    groundHeight - skin,
+                    groundHeight - groundSkin,
                     transform.position.z);
+                SetGroundIron(hitIron, raycastHit.rigidbody);
             }
             else
             {
                 IsGrounded = false;
+                ClearGroundIron();
             }
+        }
+        else if (IsGrounded && HasAuxiliaryGroundSupport())
+        {
+            IsGrounded = true;
+            ClearGroundIron();
         }
         else
         {
             IsGrounded = false;
             groundNormal = Vector3.up;
+            ClearGroundIron();
         }
     }
 
+    private void ApplyGroundIronMovement()
+    {
+        if (!IsGrounded ||
+            groundIron == null ||
+            groundIronBody == null ||
+            !groundIron.isActiveAndEnabled)
+        {
+            ClearGroundIron();
+            return;
+        }
+
+        Vector3 currentIronPosition = groundIronBody.position;
+        transform.position += currentIronPosition - groundIronPosition;
+        groundIronPosition = currentIronPosition;
+    }
+
+    private void SetGroundIron(BombMovableIron iron, Rigidbody ironBody)
+    {
+        groundIron = iron;
+        groundIronBody = iron != null ? ironBody : null;
+        groundIronPosition = groundIronBody != null
+            ? groundIronBody.position
+            : Vector3.zero;
+    }
+
+    private void ClearGroundIron()
+    {
+        groundIron = null;
+        groundIronBody = null;
+        groundIronPosition = Vector3.zero;
+    }
+
     private bool TryGetGroundHit(out RaycastHit groundHit)
+    {
+        float currentGroundHeight = transform.position.y - playerHeight / 2f + skin;
+        Vector3 rayOrigin = new Vector3(
+            transform.position.x,
+            currentGroundHeight + stepOffset + RayOriginOffset,
+            transform.position.z);
+        int hitCount = Physics.RaycastNonAlloc(
+            rayOrigin,
+            Vector3.down,
+            groundHitBuffer,
+            2000f,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Ignore);
+
+        groundHit = default;
+        bool foundGround = false;
+        float nearestHitDistance = float.PositiveInfinity;
+
+        for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
+        {
+            RaycastHit hit = groundHitBuffer[hitIndex];
+
+            if (hit.collider == null ||
+                IsPlayerCollider(hit.collider) ||
+                hit.collider.tag != GroundTag ||
+                hit.distance >= nearestHitDistance)
+            {
+                continue;
+            }
+
+            groundHit = hit;
+            foundGround = true;
+            nearestHitDistance = hit.distance;
+        }
+
+        return foundGround;
+    }
+
+    private bool HasAuxiliaryGroundSupport()
     {
         float currentGroundHeight = transform.position.y - playerHeight / 2f + skin;
         Vector3 groundProbeCenter = new Vector3(
@@ -500,9 +589,10 @@ public sealed class pl_Move : MonoBehaviour
             playerWorldRadius * GroundProbeRadiusScale,
             Mathf.Max(0f, playerWorldRadius - skin));
 
-        groundHit = default;
-        bool foundGround = false;
-        float nearestHitDistance = float.PositiveInfinity;
+        if (groundProbeRadius <= InputDeadZone)
+        {
+            return false;
+        }
 
         for (int probeIndex = 0;
              probeIndex < GroundProbeDirections.Length;
@@ -525,19 +615,21 @@ public sealed class pl_Move : MonoBehaviour
 
                 if (hit.collider == null ||
                     IsPlayerCollider(hit.collider) ||
-                    hit.collider.tag != GroundTag ||
-                    hit.distance >= nearestHitDistance)
+                    hit.collider.tag != GroundTag)
                 {
                     continue;
                 }
 
-                groundHit = hit;
-                foundGround = true;
-                nearestHitDistance = hit.distance;
+                float groundHeight = hit.point.y + playerHeight / 2f;
+                float bottomDistance = transform.position.y - groundHeight;
+                if (bottomDistance <= groundSnapDistance)
+                {
+                    return true;
+                }
             }
         }
 
-        return foundGround;
+        return false;
     }
 
     private bool IsPlayerCollider(Collider hitCollider)

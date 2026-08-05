@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 2030336698615948246}
   - component: {fileID: 7157015177156730169}
   - component: {fileID: 2556616760690300175}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: BombContactBreakable
   m_TagString: Untagged
   m_Icon: {fileID: 0}
