@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 681595825733770763}
   - component: {fileID: 771517587549739081}
   - component: {fileID: 6525979380126126772}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: IronBlock
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -189,6 +189,10 @@ PrefabInstance:
     - target: {fileID: 919132149155446097, guid: 1529eca40b0e86147baed3f90eb7e9fb, type: 3}
       propertyPath: m_Name
       value: ironStone
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 1529eca40b0e86147baed3f90eb7e9fb, type: 3}
+      propertyPath: m_Layer
+      value: 6
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
