@@ -25,9 +25,11 @@ namespace SuperFinalFuse.PlayerLife
         private pl_stateManager stateManager;
         private BombBuffController buffController;
         private bool hasCheckpoint;
+        private Transform currentCheckpoint;
 
         public bool HasCheckpoint => hasCheckpoint;
         public Vector3 SavedPosition => savedPosition;
+        public Transform CurrentCheckpoint => currentCheckpoint;
 
         private void Awake()
         {
@@ -41,10 +43,23 @@ namespace SuperFinalFuse.PlayerLife
 
         private void Start()
         {
+            // A checkpoint overlap may be detected before this late-execution
+            // Start method. Never overwrite an already activated checkpoint
+            // with the configured initial point.
+            if (hasCheckpoint)
+            {
+                return;
+            }
+
             Transform point = initialCheckpoint;
-            CaptureCheckpoint(
-                point != null ? point.position : transform.position,
-                point != null ? point.rotation : transform.rotation);
+            if (point != null)
+            {
+                CaptureCheckpoint(point);
+            }
+            else
+            {
+                CaptureCheckpoint(transform.position, transform.rotation);
+            }
         }
 
         public void CaptureCheckpoint(Transform checkpoint)
@@ -54,6 +69,7 @@ namespace SuperFinalFuse.PlayerLife
                 return;
             }
 
+            currentCheckpoint = checkpoint;
             CaptureCheckpoint(checkpoint.position, checkpoint.rotation);
         }
 
