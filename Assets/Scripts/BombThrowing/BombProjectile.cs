@@ -420,7 +420,8 @@ namespace SuperFinalFuse.BombThrowing
                 blastSpeed,
                 blastLayers,
                 showDebugBlast,
-                debugBlastColor);
+                debugBlastColor,
+                owner);
 
             onExploded?.Invoke();
             Exploded?.Invoke(this);
