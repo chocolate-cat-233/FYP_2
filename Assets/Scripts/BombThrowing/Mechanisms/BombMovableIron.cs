@@ -162,15 +162,8 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             // Snap the resting spot to the world-aligned integer grid on the
             // xz plane so the iron block settles on aligned coordinates.
             moveDestination = moveStart + moveDirection * moveDistance;
-            if (moveDirection.x != 0f)
-            {
-                moveDestination.x = Mathf.Round(moveDestination.x);
-            }
-
-            if (moveDirection.z != 0f)
-            {
-                moveDestination.z = Mathf.Round(moveDestination.z);
-            }
+            moveDestination.x = Mathf.Round(moveDestination.x);
+            moveDestination.z = Mathf.Round(moveDestination.z);
 
             if (ironBody != null && !ironBody.isKinematic)
             {
