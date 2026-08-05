@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 2119289114172571584}
   - component: {fileID: 3518232853849449723}
   - component: {fileID: 3900814783767688923}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: ExplosiveBarrel
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -88,7 +88,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  - {fileID: 2100000, guid: 51a25b5cc3c21c646abe9668712535db, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
