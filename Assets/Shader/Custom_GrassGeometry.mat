@@ -1,0 +1,59 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Custom_GrassGeometry
+  m_Shader: {fileID: 4800000, guid: 317e7fcb20becb24ba4f61c4d9026947, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _GrassMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _GroundMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _AlphaCutoff: 0
+    - _AmbientStrength: 0.55
+    - _Billboard: 0
+    - _BladeHeight: 2
+    - _BladeWidth: 0.2
+    - _BlendSoftness: 1
+    - _Density: 100
+    - _GroundDarkness: 0.7
+    - _MaxBladesPerTriangle: 20
+    - _ShadowSoftness: 0.08
+    - _ShadowThreshold: 0.35
+    - _WindFrequency: 2
+    - _WindSpeed: 1
+    - _WindStrength: 0.25
+    m_Colors:
+    - _AmbientColor: {r: 0.45, g: 0.54999995, b: 0.41999996, a: 1}
+    - _BladeBaseColor: {r: 0.15999997, g: 0.39999998, b: 0.09999997, a: 1}
+    - _BladeTipColor: {r: 0.54999995, g: 0.75, b: 0.24999997, a: 1}
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _GrassColor: {r: 0.34999996, g: 0.6, b: 0.24999997, a: 1}
+    - _GroundColor: {r: 0.7610062, g: 0.65084237, b: 0.52887535, a: 1}
+    - _WindDirection: {r: 1, g: 0, b: 0, a: 0}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1
