@@ -23,14 +23,20 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         [Tooltip("One end of the pipe. Its forward direction is used when a bomb " +
                  "leaves from this end.")]
         [SerializeField] private Transform exit;
-        [Min(0f)]
-        [SerializeField] private float travelDuration = 1f;
+        [Min(0.01f)]
+        [Tooltip("Bomb travel speed inside the pipe. Travel time is calculated " +
+                 "as the distance between both ends divided by this value.")]
+        [SerializeField] private float internalTravelSpeed = 5f;
         [Min(0f)]
         [SerializeField] private float exitSpeed = 8f;
         [Min(0f)]
         [Tooltip("Prevents a bomb released inside the pipe trigger from being " +
                  "captured again immediately.")]
         [SerializeField] private float releasedBombIgnoreDuration = 0.25f;
+        [Min(0f)]
+        [Tooltip("A released bomb cannot enter any pipe until it has travelled " +
+                 "at least this far from its release point.")]
+        [SerializeField] private float releasedBombIgnoreDistance = 1f;
         [SerializeField] private BombOwnerMask acceptedOwners = BombOwnerMask.All;
 
         [Header("Events")]
@@ -39,21 +45,45 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
         [SerializeField, HideInInspector] private BombPipeState state;
         private BombProjectile capturedBomb;
-        private BombProjectile lastReleasedBomb;
-        private float ignoreReleasedBombUntil;
         private Coroutine travelRoutine;
         private bool releaseFromExit;
 
         public BombPipeState State => state;
         public BombProjectile CapturedBomb => capturedBomb;
+        public float PipeLength
+        {
+            get
+            {
+                if (exit == null)
+                {
+                    return 0f;
+                }
+
+                Vector3 center = capturePoint != null
+                    ? capturePoint.position
+                    : transform.position;
+                return Vector3.Distance(
+                    GetEntrancePosition(center),
+                    exit.position);
+            }
+        }
+        public float CurrentTravelDuration =>
+            PipeLength / Mathf.Max(0.01f, internalTravelSpeed);
 
         public BombHitResult ReceiveBombHit(BombDirectHit hit)
         {
+            // The lock belongs to the bomb, not this pipe. Therefore it also
+            // protects against a different/overlapping pipe entrance placed at
+            // the release point.
+            if (hit.Projectile != null &&
+                hit.Projectile.IsPipeRecaptureLocked)
+            {
+                return BombHitResult.ContinueFlight;
+            }
+
             if (!acceptedOwners.Contains(hit.OwnerType) ||
                 state == BombPipeState.Occupied ||
                 hit.Projectile == null ||
-                hit.Projectile == lastReleasedBomb &&
-                Time.time < ignoreReleasedBombUntil ||
                 exit == null)
             {
                 return BombHitResult.Ignore;
@@ -84,9 +114,10 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
         private IEnumerator TravelRoutine()
         {
-            if (travelDuration > 0f)
+            float duration = CurrentTravelDuration;
+            if (duration > 0f)
             {
-                yield return new WaitForSeconds(travelDuration);
+                yield return new WaitForSeconds(duration);
             }
 
             travelRoutine = null;
@@ -105,10 +136,6 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             BombProjectile bomb = capturedBomb;
             bomb.Completed -= HandleCapturedBombCompleted;
             ClearOccupiedState();
-            lastReleasedBomb = bomb;
-            ignoreReleasedBombUntil =
-                Time.time + releasedBombIgnoreDuration;
-
             Transform anchor = capturePoint != null ? capturePoint : transform;
             Vector3 releasePosition;
             Vector3 direction;
@@ -130,6 +157,11 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             {
                 direction = Vector3.forward;
             }
+
+            bomb.SetPipeRecaptureLock(
+                releasePosition,
+                releasedBombIgnoreDuration,
+                releasedBombIgnoreDistance);
 
             bomb.Release(
                 releasePosition,

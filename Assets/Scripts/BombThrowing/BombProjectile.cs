@@ -45,6 +45,9 @@ namespace SuperFinalFuse.BombThrowing
         private bool initialIsKinematic;
         private Transform captureAnchor;
         private Vector3 scaleBeforeCapture;
+        private float pipeRecaptureUnlockTime;
+        private Vector3 pipeReleasePosition;
+        private float pipeRecaptureUnlockDistance;
 
         [SerializeField, HideInInspector]
         private BombProjectileState state = BombProjectileState.Flying;
@@ -67,6 +70,22 @@ namespace SuperFinalFuse.BombThrowing
             ? bombBody.linearVelocity
             : Vector3.zero;
         public float RemainingLifetime => remainingLifetime;
+        public bool IsPipeRecaptureLocked =>
+            Time.time < pipeRecaptureUnlockTime ||
+            (transform.position - pipeReleasePosition).sqrMagnitude <
+            pipeRecaptureUnlockDistance * pipeRecaptureUnlockDistance;
+
+        public void SetPipeRecaptureLock(
+            Vector3 releasePosition,
+            float minimumDuration,
+            float minimumDistance)
+        {
+            pipeReleasePosition = releasePosition;
+            pipeRecaptureUnlockTime =
+                Time.time + Mathf.Max(0f, minimumDuration);
+            pipeRecaptureUnlockDistance =
+                Mathf.Max(0f, minimumDistance);
+        }
 
         private void Awake()
         {
