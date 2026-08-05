@@ -56,6 +56,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         private CollisionDetectionMode initialCollisionDetection;
         private RigidbodyInterpolation initialInterpolation;
         private Vector3 moveStart;
+        private Vector3 moveDestination;
         private Vector3 moveDirection;
         private float moveElapsed;
         private bool finishOnNextFixedUpdate;
@@ -158,15 +159,20 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             moveElapsed = 0f;
             finishOnNextFixedUpdate = false;
 
-Vector3 start = transform.position;
-float allowedDistance = GetAllowedDistance(direction);
-Vector3 destination = start + direction * allowedDistance;
-// Snap to the world-aligned integer grid on the xz plane so the
-// iron block always settles on aligned coordinates.
-destination.x = Mathf.Round(destination.x);
-destination.z = Mathf.Round(destination.z);
+            // Snap the resting spot to the world-aligned integer grid on the
+            // xz plane so the iron block settles on aligned coordinates.
+            moveDestination = moveStart + moveDirection * moveDistance;
+            if (moveDirection.x != 0f)
+            {
+                moveDestination.x = Mathf.Round(moveDestination.x);
+            }
 
-if (ironBody != null && !ironBody.isKinematic)
+            if (moveDirection.z != 0f)
+            {
+                moveDestination.z = Mathf.Round(moveDestination.z);
+            }
+
+            if (ironBody != null && !ironBody.isKinematic)
             {
                 ironBody.linearVelocity = Vector3.zero;
                 ironBody.angularVelocity = Vector3.zero;
@@ -200,8 +206,10 @@ if (ironBody != null && !ironBody.isKinematic)
             float curvedT = movementCurve != null
                 ? Mathf.Clamp01(movementCurve.Evaluate(t))
                 : t;
-            Vector3 desiredPosition = moveStart +
-                moveDirection * (moveDistance * curvedT);
+            Vector3 desiredPosition = Vector3.LerpUnclamped(
+                moveStart,
+                moveDestination,
+                curvedT);
             Vector3 currentPosition = ironBody.position;
             Vector3 displacement = desiredPosition - currentPosition;
             float requestedDistance = displacement.magnitude;
