@@ -85,6 +85,10 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             Vector3 start = transform.position;
             float allowedDistance = GetAllowedDistance(direction);
             Vector3 destination = start + direction * allowedDistance;
+            // Snap to the world-aligned integer grid on the xz plane so the
+            // iron block always settles on aligned coordinates.
+            destination.x = Mathf.Round(destination.x);
+            destination.z = Mathf.Round(destination.z);
 
             if (ironBody != null)
             {
