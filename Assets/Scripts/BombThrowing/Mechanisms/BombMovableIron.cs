@@ -158,7 +158,15 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             moveElapsed = 0f;
             finishOnNextFixedUpdate = false;
 
-            if (!ironBody.isKinematic)
+Vector3 start = transform.position;
+float allowedDistance = GetAllowedDistance(direction);
+Vector3 destination = start + direction * allowedDistance;
+// Snap to the world-aligned integer grid on the xz plane so the
+// iron block always settles on aligned coordinates.
+destination.x = Mathf.Round(destination.x);
+destination.z = Mathf.Round(destination.z);
+
+if (ironBody != null && !ironBody.isKinematic)
             {
                 ironBody.linearVelocity = Vector3.zero;
                 ironBody.angularVelocity = Vector3.zero;
