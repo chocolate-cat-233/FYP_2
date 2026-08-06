@@ -7770,10 +7770,10 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   castRadius: 0.45
-  paddingPixels: 24
+  paddingPixels: 360
   fadeSpeed: 8
-  hideSoftness: 0.03
-  halftoneCellSize: 4
+  hideSoftness: 0.413
+  halftoneCellSize: 20
   fallbackRevealMaterial: {fileID: 0}
   debugDraw: 0
 --- !u!43 &638132625
