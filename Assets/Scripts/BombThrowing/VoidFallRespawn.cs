@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Events;
+using SuperFinalFuse.PlayerLife;
 
 namespace SuperFinalFuse.BombThrowing
 {
@@ -42,6 +43,14 @@ namespace SuperFinalFuse.BombThrowing
         public void RespawnFromVoid()
         {
             nextAllowedRespawnTime = Time.time + retriggerDelay;
+
+            PlayerHealth health = GetComponent<PlayerHealth>();
+            if (health != null)
+            {
+                health.Kill(PlayerDamageType.Void, gameObject);
+                onVoidRespawned?.Invoke();
+                return;
+            }
 
             foreach (Rigidbody body in bodies)
             {

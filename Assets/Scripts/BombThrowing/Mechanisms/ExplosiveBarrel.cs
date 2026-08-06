@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 using SuperFinalFuse.BombThrowing.Interactions;
+using SuperFinalFuse.PlayerLife;
 
 namespace SuperFinalFuse.BombThrowing.Mechanisms
 {
@@ -24,7 +25,8 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
     [RequireComponent(typeof(Rigidbody), typeof(Collider))]
     public sealed class ExplosiveBarrel : MonoBehaviour,
         IBombDirectHitReceiver,
-        IBombBlastReactive
+        IBombBlastReactive,
+        ICheckpointStateParticipant
     {
         [Header("Direct bomb hit")]
         [SerializeField] private BombOwnerMask directHitOwners =
@@ -72,6 +74,15 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
         private Rigidbody barrelBody;
         private float previousVerticalVelocity;
+        private Vector3 savedPosition;
+        private Quaternion savedRotation;
+        private Vector3 savedVelocity;
+        private Vector3 savedAngularVelocity;
+        private bool savedIsKinematic;
+        private bool savedUseGravity;
+        private ExplosiveBarrelState savedState;
+        private bool[] savedRendererStates;
+        private bool[] savedColliderStates;
 
         public ExplosiveBarrelState State => state;
         public BarrelExplosionCause LastExplosionCause { get; private set; }
@@ -269,6 +280,65 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             {
                 barrel.Explode(BarrelExplosionCause.ChainReaction);
             }
+        }
+
+        public void CaptureCheckpointState()
+        {
+            savedPosition = transform.position;
+            savedRotation = transform.rotation;
+            savedVelocity = barrelBody.linearVelocity;
+            savedAngularVelocity = barrelBody.angularVelocity;
+            savedIsKinematic = barrelBody.isKinematic;
+            savedUseGravity = barrelBody.useGravity;
+            savedState = state;
+
+            savedRendererStates = new bool[renderersToHide.Length];
+            for (int i = 0; i < renderersToHide.Length; i++)
+            {
+                savedRendererStates[i] =
+                    renderersToHide[i] != null && renderersToHide[i].enabled;
+            }
+
+            savedColliderStates = new bool[collidersToDisable.Length];
+            for (int i = 0; i < collidersToDisable.Length; i++)
+            {
+                savedColliderStates[i] =
+                    collidersToDisable[i] != null &&
+                    collidersToDisable[i].enabled;
+            }
+        }
+
+        public void RestoreCheckpointState()
+        {
+            transform.SetPositionAndRotation(savedPosition, savedRotation);
+            state = savedState;
+            barrelBody.isKinematic = savedIsKinematic;
+            barrelBody.useGravity = savedUseGravity;
+            if (!barrelBody.isKinematic)
+            {
+                barrelBody.linearVelocity = savedVelocity;
+                barrelBody.angularVelocity = savedAngularVelocity;
+            }
+
+            for (int i = 0; i < renderersToHide.Length; i++)
+            {
+                if (renderersToHide[i] != null &&
+                    i < savedRendererStates.Length)
+                {
+                    renderersToHide[i].enabled = savedRendererStates[i];
+                }
+            }
+
+            for (int i = 0; i < collidersToDisable.Length; i++)
+            {
+                if (collidersToDisable[i] != null &&
+                    i < savedColliderStates.Length)
+                {
+                    collidersToDisable[i].enabled = savedColliderStates[i];
+                }
+            }
+
+            Physics.SyncTransforms();
         }
 
         private void OnDrawGizmosSelected()

@@ -1,12 +1,14 @@
 using UnityEngine;
 using UnityEngine.Events;
 using SuperFinalFuse.BombThrowing.Interactions;
+using SuperFinalFuse.PlayerLife;
 
 namespace SuperFinalFuse.BombThrowing
 {
     [DisallowMultipleComponent]
     public sealed class BombContactBreakable : MonoBehaviour,
-        IBombDirectHitReceiver
+        IBombDirectHitReceiver,
+        ICheckpointStateParticipant
     {
         [SerializeField] private Renderer[] renderersToHide;
         [SerializeField] private Collider[] collidersToDisable;
@@ -16,6 +18,10 @@ namespace SuperFinalFuse.BombThrowing
         [SerializeField] private UnityEvent onBroken;
 
         public bool IsBroken { get; private set; }
+        private bool savedIsBroken;
+        private bool[] savedRendererStates;
+        private bool[] savedColliderStates;
+        private GameObject activeBreakEffect;
 
         private void Awake()
         {
@@ -50,11 +56,14 @@ namespace SuperFinalFuse.BombThrowing
 
             if (breakEffectPrefab != null)
             {
-                GameObject effect = Instantiate(
+                activeBreakEffect = Instantiate(
                     breakEffectPrefab,
                     contactPoint,
                     Quaternion.identity);
-                if (effectLifetime > 0f) Destroy(effect, effectLifetime);
+                if (effectLifetime > 0f)
+                {
+                    Destroy(activeBreakEffect, effectLifetime);
+                }
             }
 
             onBroken?.Invoke();
@@ -69,6 +78,57 @@ namespace SuperFinalFuse.BombThrowing
 
             Break(hit.Point);
             return BombHitResult.Explode;
+        }
+
+        public void CaptureCheckpointState()
+        {
+            savedIsBroken = IsBroken;
+            savedRendererStates = new bool[renderersToHide.Length];
+            for (int i = 0; i < renderersToHide.Length; i++)
+            {
+                savedRendererStates[i] =
+                    renderersToHide[i] != null && renderersToHide[i].enabled;
+            }
+
+            savedColliderStates = new bool[collidersToDisable.Length];
+            for (int i = 0; i < collidersToDisable.Length; i++)
+            {
+                savedColliderStates[i] =
+                    collidersToDisable[i] != null &&
+                    collidersToDisable[i].enabled;
+            }
+        }
+
+        public void RestoreCheckpointState()
+        {
+            IsBroken = savedIsBroken;
+            if (activeBreakEffect != null)
+            {
+                Destroy(activeBreakEffect);
+                activeBreakEffect = null;
+            }
+
+            for (int i = 0; i < renderersToHide.Length; i++)
+            {
+                if (renderersToHide[i] != null &&
+                    savedRendererStates != null &&
+                    i < savedRendererStates.Length)
+                {
+                    renderersToHide[i].enabled = savedRendererStates[i];
+                }
+            }
+
+            for (int i = 0; i < collidersToDisable.Length; i++)
+            {
+                if (collidersToDisable[i] != null &&
+                    savedColliderStates != null &&
+                    i < savedColliderStates.Length)
+                {
+                    collidersToDisable[i].enabled = savedColliderStates[i];
+                }
+            }
+
+            Physics.SyncTransforms();
         }
     }
 }

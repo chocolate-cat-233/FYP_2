@@ -20,6 +20,7 @@ namespace SuperFinalFuse.BombThrowing
         private Color ringColor;
         private LineRenderer ring;
         private Material runtimeMaterial;
+        private GameObject blastOwner;
 
         public static void Create(
             Vector3 center,
@@ -27,7 +28,8 @@ namespace SuperFinalFuse.BombThrowing
             float speed,
             LayerMask layers,
             bool showDebugRing,
-            Color debugColor)
+            Color debugColor,
+            GameObject owner = null)
         {
             GameObject target = new GameObject("Bomb Blast Wave");
             target.transform.position = center;
@@ -37,7 +39,8 @@ namespace SuperFinalFuse.BombThrowing
                 speed,
                 layers,
                 showDebugRing,
-                debugColor);
+                debugColor,
+                owner);
         }
 
         private void Initialize(
@@ -45,13 +48,15 @@ namespace SuperFinalFuse.BombThrowing
             float speed,
             LayerMask layers,
             bool debugRing,
-            Color debugColor)
+            Color debugColor,
+            GameObject owner)
         {
             maximumRadius = Mathf.Max(0.01f, radius);
             expansionSpeed = Mathf.Max(0.01f, speed);
             targetLayers = layers;
             showRing = debugRing;
             ringColor = debugColor;
+            blastOwner = owner;
 
             if (showRing)
             {
@@ -105,7 +110,8 @@ namespace SuperFinalFuse.BombThrowing
                     reactive.OnBombBlast(new BombBlastHit(
                         transform.position,
                         maximumRadius,
-                        distance));
+                        distance,
+                        blastOwner));
                     break;
                 }
             }

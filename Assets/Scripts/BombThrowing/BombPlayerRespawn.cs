@@ -2,9 +2,13 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
 using SuperFinalFuse.BombThrowing.Buffs;
+using SuperFinalFuse.PlayerLife;
 
 namespace SuperFinalFuse.BombThrowing
 {
+    [RequireComponent(
+        typeof(PlayerHealth),
+        typeof(PlayerCheckpointManager))]
     [DisallowMultipleComponent]
     public sealed class BombPlayerRespawn : MonoBehaviour, IBombBlastReactive
     {
@@ -26,6 +30,10 @@ namespace SuperFinalFuse.BombThrowing
         private Quaternion initialRotation;
         private Quaternion visualInitialLocalRotation;
         private bool isRespawning;
+        private PlayerHealth playerHealth;
+        private PlayerCheckpointManager checkpointManager;
+
+        public bool IsRespawning => isRespawning;
 
         private void Awake()
         {
@@ -35,16 +43,57 @@ namespace SuperFinalFuse.BombThrowing
             {
                 visualInitialLocalRotation = visualRoot.localRotation;
             }
+
+            playerHealth = GetComponent<PlayerHealth>();
+            if (playerHealth == null)
+            {
+                playerHealth = gameObject.AddComponent<PlayerHealth>();
+            }
+            checkpointManager = GetComponent<PlayerCheckpointManager>();
+            if (checkpointManager == null)
+            {
+                checkpointManager =
+                    gameObject.AddComponent<PlayerCheckpointManager>();
+            }
+        }
+
+        private void OnEnable()
+        {
+            if (playerHealth == null)
+            {
+                playerHealth = GetComponent<PlayerHealth>();
+            }
+            if (playerHealth != null)
+            {
+                playerHealth.Died += RequestRespawn;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (playerHealth != null)
+            {
+                playerHealth.Died -= RequestRespawn;
+            }
         }
 
         public void OnBombBlast(BombBlastHit hit)
         {
-            BombBuffController buffs = GetComponent<BombBuffController>();
-            if (buffs != null && buffs.IsBombBlastImmune)
+            if (playerHealth != null)
             {
+                playerHealth.OnBombBlast(hit);
                 return;
             }
 
+            BombBuffController buffs = GetComponent<BombBuffController>();
+            if (buffs == null || !buffs.IsBombBlastImmune)
+            {
+                RequestRespawn();
+            }
+        }
+
+        public void RequestRespawn()
+        {
             if (!isRespawning)
             {
                 StartCoroutine(RespawnRoutine());
@@ -66,9 +115,23 @@ namespace SuperFinalFuse.BombThrowing
             // Respawn must complete even if another system pauses game time.
             yield return new WaitForSecondsRealtime(respawnDelay);
 
-            transform.SetPositionAndRotation(
-                respawnPoint != null ? respawnPoint.position : initialPosition,
-                respawnPoint != null ? respawnPoint.rotation : initialRotation);
+            if (checkpointManager != null &&
+                checkpointManager.HasCheckpoint)
+            {
+                checkpointManager.RestoreLatestCheckpoint();
+            }
+            else
+            {
+                transform.SetPositionAndRotation(
+                    respawnPoint != null
+                        ? respawnPoint.position
+                        : initialPosition,
+                    respawnPoint != null
+                        ? respawnPoint.rotation
+                        : initialRotation);
+            }
+
+            playerHealth?.RestoreFullHealth();
 
             if (visualRoot != null)
             {

@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.Events;
 using SuperFinalFuse.BombThrowing.Interactions;
+using SuperFinalFuse.PlayerLife;
 
 namespace SuperFinalFuse.BombThrowing.Mechanisms
 {
@@ -22,7 +23,8 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
     [RequireComponent(typeof(Rigidbody), typeof(Collider))]
     [DisallowMultipleComponent]
     public sealed class BombRailPlatform : MonoBehaviour,
-        IBombDirectHitReceiver
+        IBombDirectHitReceiver,
+        ICheckpointStateParticipant
     {
         [Header("Route")]
         [Tooltip("World-space route points. Do not parent these points to the " +
@@ -55,6 +57,11 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         private int targetWaypointIndex;
         private int travelDirection = 1;
         private float remainingWaitTime;
+        private Vector3 savedPosition;
+        private int savedTargetIndex;
+        private int savedTravelDirection;
+        private float savedWaitTime;
+        private RailPlatformState savedState;
 
         public RailPlatformState State => state;
         public int TargetWaypointIndex => targetWaypointIndex;
@@ -317,6 +324,32 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                     waypoints[waypoints.Length - 1].position,
                     waypoints[0].position);
             }
+        }
+
+        public void CaptureCheckpointState()
+        {
+            savedPosition = platformBody != null
+                ? platformBody.position
+                : transform.position;
+            savedTargetIndex = targetWaypointIndex;
+            savedTravelDirection = travelDirection;
+            savedWaitTime = remainingWaitTime;
+            savedState = state;
+        }
+
+        public void RestoreCheckpointState()
+        {
+            if (platformBody == null)
+            {
+                return;
+            }
+
+            platformBody.position = savedPosition;
+            targetWaypointIndex = savedTargetIndex;
+            travelDirection = savedTravelDirection;
+            remainingWaitTime = savedWaitTime;
+            state = savedState;
+            Physics.SyncTransforms();
         }
     }
 }
