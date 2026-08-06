@@ -643,7 +643,9 @@ public sealed class pl_Move : MonoBehaviour
         return hitCollider != null &&
                (hitCollider.CompareTag(GroundTag) ||
                 hitCollider.GetComponentInParent<
-                    SuperFinalFuse.BombThrowing.Mechanisms.BombJumpPad>() != null);
+                    SuperFinalFuse.BombThrowing.Mechanisms.BombJumpPad>() != null ||
+                hitCollider.GetComponentInParent<
+                    SuperFinalFuse.PlatformReveal.RevealablePlatform>() != null);
     }
 
     private Vector3 ProjectOnPlane(Vector3 velocity, Vector3 normal)

@@ -24,7 +24,7 @@ Shader "Custom/TransparantPlatform"
             Tags { "LightMode" = "UniversalForward" }
 
             Blend SrcAlpha OneMinusSrcAlpha
-            ZWrite On
+            ZWrite Off
             Cull Back
 
             HLSLPROGRAM
