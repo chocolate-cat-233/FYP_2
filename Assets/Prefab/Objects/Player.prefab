@@ -451,7 +451,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   voidHeight: -5
-  respawnPoint: {fileID: 0}
   retriggerDelay: 0.5
   onVoidRespawned:
     m_PersistentCalls:

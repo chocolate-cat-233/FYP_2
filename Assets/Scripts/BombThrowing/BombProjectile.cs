@@ -74,6 +74,22 @@ namespace SuperFinalFuse.BombThrowing
             ? bombBody.linearVelocity
             : Vector3.zero;
         public float RemainingLifetime => remainingLifetime;
+        public float EffectiveGravityMultiplier
+        {
+            get
+            {
+                GravityController gravityController =
+                    GetComponent<GravityController>();
+                if (gravityController != null && gravityController.enabled)
+                {
+                    return gravityController.GravityMultiplier;
+                }
+                Rigidbody body = bombBody != null
+                    ? bombBody
+                    : GetComponent<Rigidbody>();
+                return body != null && body.useGravity ? 1f : 0f;
+            }
+        }
         public bool IsPipeRecaptureLocked =>
             Time.time < pipeRecaptureUnlockTime ||
             (transform.position - pipeReleasePosition).sqrMagnitude <
@@ -348,6 +364,24 @@ namespace SuperFinalFuse.BombThrowing
             bombBody.linearVelocity = velocity;
             state = BombProjectileState.Flying;
             Physics.SyncTransforms();
+            return true;
+        }
+
+        public bool RedirectVelocity(Vector3 velocity)
+        {
+            if (state != BombProjectileState.Flying || bombBody == null)
+            {
+                return false;
+            }
+
+            bombBody.linearVelocity = velocity;
+            bombBody.angularVelocity = Vector3.zero;
+            if (velocity.sqrMagnitude > 0.001f)
+            {
+                transform.rotation = Quaternion.LookRotation(
+                    velocity.normalized,
+                    Vector3.up);
+            }
             return true;
         }
 

@@ -36,6 +36,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
         private readonly HashSet<BombProjectile> activeBombs =
             new HashSet<BombProjectile>();
+
         private float timeUntilNextBomb;
         private bool savedGenerating;
         private float savedTimeUntilNextBomb;

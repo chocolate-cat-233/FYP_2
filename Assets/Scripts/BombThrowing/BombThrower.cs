@@ -49,6 +49,7 @@ namespace SuperFinalFuse.BombThrowing
         [SerializeField] private float maximumThrowLockDuration = 10f;
 
         private BombProjectile activeBomb;
+
         private int activeBombInstanceId;
         private float activeBombLaunchTime;
         private bool inputBlocked;
