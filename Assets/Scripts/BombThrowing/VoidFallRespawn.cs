@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Events;
+using SuperFinalFuse.PlayerLife;
 
 namespace SuperFinalFuse.BombThrowing
 {
@@ -9,24 +10,22 @@ namespace SuperFinalFuse.BombThrowing
         [Header("Void detection")]
         [Tooltip("The player respawns after falling below this world-space Y position.")]
         [SerializeField] private float voidHeight = -10f;
-
-        [Header("Respawn")]
-        [Tooltip("Optional. When empty, the player's position at game start is used.")]
-        [SerializeField] private Transform respawnPoint;
         [Min(0f)]
         [SerializeField] private float retriggerDelay = 0.5f;
+        [Tooltip("Invoked when falling into the void requests the unified " +
+                 "death/respawn flow.")]
         [SerializeField] private UnityEvent onVoidRespawned;
 
-        private Vector3 initialPosition;
-        private Quaternion initialRotation;
-        private Rigidbody[] bodies;
         private float nextAllowedRespawnTime;
+        private PlayerHealth playerHealth;
+        private BombPlayerRespawn playerRespawn;
+        private PlayerCheckpointManager checkpointManager;
 
         private void Awake()
         {
-            initialPosition = transform.position;
-            initialRotation = transform.rotation;
-            bodies = GetComponentsInChildren<Rigidbody>();
+            playerHealth = GetComponent<PlayerHealth>();
+            playerRespawn = GetComponent<BombPlayerRespawn>();
+            checkpointManager = GetComponent<PlayerCheckpointManager>();
         }
 
         private void Update()
@@ -43,27 +42,46 @@ namespace SuperFinalFuse.BombThrowing
         {
             nextAllowedRespawnTime = Time.time + retriggerDelay;
 
-            foreach (Rigidbody body in bodies)
+            if (playerHealth == null)
             {
-                if (body == null)
-                {
-                    continue;
-                }
-
-                body.linearVelocity = Vector3.zero;
-                body.angularVelocity = Vector3.zero;
+                playerHealth = GetComponent<PlayerHealth>();
+            }
+            if (playerRespawn == null)
+            {
+                playerRespawn = GetComponent<BombPlayerRespawn>();
+            }
+            if (checkpointManager == null)
+            {
+                checkpointManager = GetComponent<PlayerCheckpointManager>();
             }
 
-            Vector3 targetPosition = respawnPoint != null
-                ? respawnPoint.position
-                : initialPosition;
-            Quaternion targetRotation = respawnPoint != null
-                ? respawnPoint.rotation
-                : initialRotation;
+            if (playerHealth != null)
+            {
+                if (playerHealth.IsDead)
+                {
+                    return;
+                }
 
-            transform.SetPositionAndRotation(targetPosition, targetRotation);
-            Physics.SyncTransforms();
-            onVoidRespawned?.Invoke();
+                playerHealth.Kill(PlayerDamageType.Void, gameObject);
+                onVoidRespawned?.Invoke();
+                return;
+            }
+
+            // Compatibility fallback for unusual player setups. Position is
+            // still owned by the unified respawn/checkpoint systems; this
+            // component never stores or selects a respawn point itself.
+            if (playerRespawn != null)
+            {
+                playerRespawn.RequestRespawn();
+                onVoidRespawned?.Invoke();
+                return;
+            }
+
+            if (checkpointManager != null && checkpointManager.HasCheckpoint)
+            {
+                checkpointManager.RestoreLatestCheckpoint();
+                onVoidRespawned?.Invoke();
+            }
         }
 
         private void OnDrawGizmosSelected()

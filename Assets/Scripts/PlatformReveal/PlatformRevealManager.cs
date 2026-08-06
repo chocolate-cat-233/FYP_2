@@ -24,7 +24,7 @@ namespace SuperFinalFuse.PlatformReveal
             {
                 if (_instance == null)
                 {
-                    _instance = FindObjectOfType<PlatformRevealManager>();
+                    _instance = FindFirstObjectByType<PlatformRevealManager>();
                     if (_instance == null)
                     {
                         var go = new GameObject("[PlatformRevealManager]");
@@ -156,6 +156,12 @@ namespace SuperFinalFuse.PlatformReveal
                 _duration[i]      = _duration[i + 1];
                 _fadeDuration[i]  = _fadeDuration[i + 1];
             }
+
+            _points[_activeCount] = Vector4.zero;
+            _strengths[_activeCount] = 0f;
+            _startTime[_activeCount] = 0f;
+            _duration[_activeCount] = 0f;
+            _fadeDuration[_activeCount] = 0f;
         }
 
         private void PushToShader()

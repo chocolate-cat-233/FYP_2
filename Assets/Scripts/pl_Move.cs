@@ -563,7 +563,7 @@ public sealed class pl_Move : MonoBehaviour
 
             if (hit.collider == null ||
                 IsPlayerCollider(hit.collider) ||
-                hit.collider.tag != GroundTag ||
+                !IsGroundCollider(hit.collider) ||
                 hit.distance >= nearestHitDistance)
             {
                 continue;
@@ -615,7 +615,7 @@ public sealed class pl_Move : MonoBehaviour
 
                 if (hit.collider == null ||
                     IsPlayerCollider(hit.collider) ||
-                    hit.collider.tag != GroundTag)
+                    !IsGroundCollider(hit.collider))
                 {
                     continue;
                 }
@@ -636,6 +636,16 @@ public sealed class pl_Move : MonoBehaviour
     {
         Transform hitTransform = hitCollider.transform;
         return hitTransform == transform || hitTransform.IsChildOf(transform);
+    }
+
+    private static bool IsGroundCollider(Collider hitCollider)
+    {
+        return hitCollider != null &&
+               (hitCollider.CompareTag(GroundTag) ||
+                hitCollider.GetComponentInParent<
+                    SuperFinalFuse.BombThrowing.Mechanisms.BombJumpPad>() != null ||
+                hitCollider.GetComponentInParent<
+                    SuperFinalFuse.PlatformReveal.RevealablePlatform>() != null);
     }
 
     private Vector3 ProjectOnPlane(Vector3 velocity, Vector3 normal)

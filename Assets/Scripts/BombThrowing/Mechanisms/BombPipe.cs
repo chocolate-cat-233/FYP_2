@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
 using SuperFinalFuse.BombThrowing.Interactions;
+using SuperFinalFuse.PlayerLife;
 
 namespace SuperFinalFuse.BombThrowing.Mechanisms
 {
@@ -12,7 +13,9 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
     }
 
     [DisallowMultipleComponent]
-    public sealed class BombPipe : MonoBehaviour, IBombDirectHitReceiver
+    public sealed class BombPipe : MonoBehaviour,
+        IBombDirectHitReceiver,
+        ICheckpointStateParticipant
     {
         [Header("Pipe route")]
         [Tooltip("Optional position where the captured bomb waits.")]
@@ -47,6 +50,7 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         private BombProjectile capturedBomb;
         private Coroutine travelRoutine;
         private bool releaseFromExit;
+        private bool checkpointWasOccupied;
 
         public BombPipeState State => state;
         public BombProjectile CapturedBomb => capturedBomb;
@@ -219,6 +223,31 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             }
 
             ClearOccupiedState();
+        }
+
+        public void CaptureCheckpointState()
+        {
+            checkpointWasOccupied = state == BombPipeState.Occupied;
+        }
+
+        public void RestoreCheckpointState()
+        {
+            // Runtime bombs are cleared during respawn. A checkpoint should
+            // never retain a stale reference to an in-transit projectile.
+            if (capturedBomb != null)
+            {
+                capturedBomb.Completed -= HandleCapturedBombCompleted;
+                capturedBomb.Disarm();
+            }
+            ClearOccupiedState();
+
+            if (checkpointWasOccupied)
+            {
+                Debug.LogWarning(
+                    $"Checkpoint captured '{name}' while its pipe was occupied. " +
+                    "It is restored empty because projectiles are transient.",
+                    this);
+            }
         }
 
         private void OnDrawGizmosSelected()

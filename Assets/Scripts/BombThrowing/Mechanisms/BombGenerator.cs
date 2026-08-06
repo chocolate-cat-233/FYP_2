@@ -2,11 +2,13 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 using SuperFinalFuse.BombThrowing.Interactions;
+using SuperFinalFuse.PlayerLife;
 
 namespace SuperFinalFuse.BombThrowing.Mechanisms
 {
     [DisallowMultipleComponent]
-    public sealed class BombGenerator : MonoBehaviour
+    public sealed class BombGenerator : MonoBehaviour,
+        ICheckpointStateParticipant
     {
         [Header("References")]
         [SerializeField] private BombProjectile bombPrefab;
@@ -34,7 +36,10 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
         private readonly HashSet<BombProjectile> activeBombs =
             new HashSet<BombProjectile>();
+
         private float timeUntilNextBomb;
+        private bool savedGenerating;
+        private float savedTimeUntilNextBomb;
 
         public bool IsGenerating { get; private set; }
         public int ActiveBombCount
@@ -201,6 +206,29 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             }
 
             activeBombs.Clear();
+        }
+
+        public void CaptureCheckpointState()
+        {
+            savedGenerating = IsGenerating;
+            savedTimeUntilNextBomb = timeUntilNextBomb;
+        }
+
+        public void RestoreCheckpointState()
+        {
+            BombProjectile[] bombs = new BombProjectile[activeBombs.Count];
+            activeBombs.CopyTo(bombs);
+            foreach (BombProjectile bomb in bombs)
+            {
+                if (bomb != null)
+                {
+                    bomb.Completed -= HandleBombCompleted;
+                    bomb.Disarm();
+                }
+            }
+            activeBombs.Clear();
+            IsGenerating = savedGenerating;
+            timeUntilNextBomb = savedTimeUntilNextBomb;
         }
 
         private void OnDrawGizmosSelected()

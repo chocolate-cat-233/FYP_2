@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 using SuperFinalFuse.BombThrowing.Interactions;
+using SuperFinalFuse.PlayerLife;
 
 namespace SuperFinalFuse.BombThrowing.Mechanisms
 {
@@ -14,7 +15,8 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
     [RequireComponent(typeof(Rigidbody))]
     [DisallowMultipleComponent]
     public sealed class BombMovableIron : MonoBehaviour,
-        IBombDirectHitReceiver
+        IBombDirectHitReceiver,
+        ICheckpointStateParticipant
     {
         private const int CastBufferSize = 32;
         private static readonly HashSet<BombMovableIron> ActiveIrons =
@@ -61,6 +63,8 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         private Vector3 moveDirection;
         private float moveElapsed;
         private bool finishOnNextFixedUpdate;
+        private Vector3 savedCheckpointPosition;
+        private Quaternion savedCheckpointRotation;
 
         public BombMovableIronState State => state;
 
@@ -582,6 +586,30 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             state = BombMovableIronState.Idle;
             finishOnNextFixedUpdate = false;
             onMoveFinished?.Invoke();
+        }
+
+        public void CaptureCheckpointState()
+        {
+            savedCheckpointPosition = ironBody.position;
+            savedCheckpointRotation = ironBody.rotation;
+        }
+
+        public void RestoreCheckpointState()
+        {
+            ironBody.constraints = idleConstraints;
+            ironBody.isKinematic = initialIsKinematic;
+            ironBody.collisionDetectionMode = initialCollisionDetection;
+            ironBody.interpolation = initialInterpolation;
+            ironBody.position = savedCheckpointPosition;
+            ironBody.rotation = savedCheckpointRotation;
+            if (!ironBody.isKinematic)
+            {
+                ironBody.linearVelocity = Vector3.zero;
+                ironBody.angularVelocity = Vector3.zero;
+            }
+            state = BombMovableIronState.Idle;
+            finishOnNextFixedUpdate = false;
+            Physics.SyncTransforms();
         }
 
         private void OnDisable()

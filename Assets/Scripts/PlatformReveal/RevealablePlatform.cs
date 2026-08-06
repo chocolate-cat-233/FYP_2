@@ -1,80 +1,199 @@
 using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.Rendering;
+using UnityEngine.Serialization;
+using SuperFinalFuse.BombThrowing;
 using SuperFinalFuse.Explosion;
 
 namespace SuperFinalFuse.PlatformReveal
 {
-    /// <summary>
-    /// Put this on any platform GameObject that should be normally invisible
-    /// but temporarily revealed when hit by a RadialShockwaveExplosion.
-    ///
-    /// Requires a Collider set to a layer included in the explosion's
-    /// Reactive Layers mask.
-    /// </summary>
-    [RequireComponent(typeof(Collider))]
-    [RequireComponent(typeof(MeshRenderer))]
-    [DisallowMultipleComponent]
-    public sealed class RevealablePlatform : MonoBehaviour, IShockwaveReactive
+    public enum InvisibleRoadRevealState
     {
-        [Header("Reveal zone")]
-        [Tooltip("Radius around the explosion centre inside which this platform becomes visible.")]
+        Transparent,
+        Visible,
+        Fading
+    }
+
+    /// <summary>
+    /// A solid road whose visuals are normally transparent. Player-thrown bomb
+    /// blasts reveal only the area around the blast origin through global shader
+    /// reveal data. The collider remains enabled in every visual state.
+    /// </summary>
+    [RequireComponent(typeof(Collider), typeof(MeshRenderer))]
+    [DisallowMultipleComponent]
+    public sealed class RevealablePlatform : MonoBehaviour,
+        IBombBlastReactive,
+        IShockwaveReactive
+    {
+        [Header("Reveal")]
         [Min(0.1f)]
         [SerializeField] private float revealRadius = 5f;
-
-        [Header("Timing")]
-        [Tooltip("How long the platform stays fully revealed before fading.")]
         [Min(0f)]
-        [SerializeField] private float holdDuration = 2f;
-
-        [Tooltip("How long the fade back to invisible takes.")]
+        [FormerlySerializedAs("holdDuration")]
+        [SerializeField] private float visibleDuration = 2f;
         [Min(0.01f)]
         [SerializeField] private float fadeDuration = 1.5f;
 
-        [Header("Reveal origin")]
-        [Tooltip("When true the centre is the explosion origin (the bomb). "
-               + "When false it is the hit point on this platform.")]
-        [SerializeField] private bool useExplosionOrigin = true;
+        [Header("Rendering")]
+        [Tooltip("Invisible roads normally should not cast a visible shadow.")]
+        [SerializeField] private bool disableShadowCasting = true;
+
+        [Header("Events / TA hooks")]
+        [SerializeField] private UnityEvent onBecameVisible;
+        [SerializeField] private UnityEvent onFadeStarted;
+        [SerializeField] private UnityEvent onBecameTransparent;
 
         [Header("Debug")]
-        [Tooltip("Log every shockwave hit to the console.")]
-        [SerializeField] private bool debugLog = true;
+        [SerializeField] private bool debugLog;
 
-        // ── IShockwaveReactive ───────────────────────────────────────────
+        private Collider roadCollider;
+        private Renderer roadRenderer;
+        private float revealStartTime = float.NegativeInfinity;
+        private InvisibleRoadRevealState state =
+            InvisibleRoadRevealState.Transparent;
+
+        public float RevealRadius => revealRadius;
+        public float VisibleDuration => visibleDuration;
+        public float FadeDuration => fadeDuration;
+        public InvisibleRoadRevealState State => state;
+        public bool IsVisible => state != InvisibleRoadRevealState.Transparent;
+
+        private void Awake()
+        {
+            roadCollider = GetComponent<Collider>();
+            roadRenderer = GetComponent<Renderer>();
+            EnsurePhysicalRoad();
+        }
+
+        private void OnEnable()
+        {
+            EnsurePhysicalRoad();
+        }
+
+        private void Update()
+        {
+            if (state == InvisibleRoadRevealState.Transparent)
+            {
+                return;
+            }
+
+            float elapsed = Time.time - revealStartTime;
+            if (state == InvisibleRoadRevealState.Visible &&
+                elapsed >= visibleDuration)
+            {
+                SetState(InvisibleRoadRevealState.Fading);
+            }
+
+            if (elapsed >= visibleDuration + fadeDuration)
+            {
+                SetState(InvisibleRoadRevealState.Transparent);
+            }
+        }
+
+        public void OnBombBlast(BombBlastHit hit)
+        {
+            RevealAt(hit.Origin);
+        }
+
+        // Compatibility with the original level-start radial explosion system.
         public void OnShockwaveHit(ShockwaveHit hit)
         {
-            Vector3 centre = useExplosionOrigin ? hit.Origin : hit.Point;
+            RevealAt(hit.Origin);
+        }
+
+        /// <summary>
+        /// Public gameplay/TA entry point. Visual implementations can listen to
+        /// the state events while the supplied shader uses the global reveal zone.
+        /// </summary>
+        public void RevealAt(Vector3 worldPosition)
+        {
+            revealStartTime = Time.time;
+            PlatformRevealManager.Instance.RegisterReveal(
+                worldPosition,
+                revealRadius,
+                visibleDuration,
+                fadeDuration);
+            SetState(InvisibleRoadRevealState.Visible, true);
 
             if (debugLog)
             {
                 Debug.Log(
-                    $"[RevealablePlatform] Hit on <b>{name}</b> — "
-                    + $"centre: {centre}, radius: {revealRadius}, "
-                    + $"hold: {holdDuration}s, fade: {fadeDuration}s",
+                    $"Invisible road '{name}' revealed at {worldPosition}, " +
+                    $"radius {revealRadius}.",
                     this);
             }
-
-            PlatformRevealManager.Instance.RegisterReveal(
-                centre, revealRadius, holdDuration, fadeDuration);
         }
 
-        // ── Editor test (right-click the component header) ──────────────
-        [ContextMenu("Test Reveal (at this object)")]
-        private void TestReveal()
+        [ContextMenu("Test Reveal At Road Centre")]
+        public void TestReveal()
         {
-            Vector3 centre = transform.position;
-            Debug.Log(
-                $"[RevealablePlatform] <b>Manual test</b> on \"{name}\" — "
-                + $"centre: {centre}, radius: {revealRadius}, "
-                + $"hold: {holdDuration}s, fade: {fadeDuration}s",
-                this);
-
-            PlatformRevealManager.Instance.RegisterReveal(
-                centre, revealRadius, holdDuration, fadeDuration);
+            RevealAt(roadCollider != null
+                ? roadCollider.bounds.center
+                : transform.position);
         }
 
-        // ── Editor ───────────────────────────────────────────────────────
+        private void EnsurePhysicalRoad()
+        {
+            if (roadCollider == null)
+            {
+                roadCollider = GetComponent<Collider>();
+            }
+            if (roadRenderer == null)
+            {
+                roadRenderer = GetComponent<Renderer>();
+            }
+
+            // Transparency is visual only. Never disable either component.
+            if (roadCollider != null)
+            {
+                roadCollider.enabled = true;
+                roadCollider.isTrigger = false;
+            }
+            if (roadRenderer != null)
+            {
+                roadRenderer.enabled = true;
+                if (disableShadowCasting)
+                {
+                    roadRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                }
+            }
+        }
+
+        private void SetState(
+            InvisibleRoadRevealState newState,
+            bool retriggerVisibleEvent = false)
+        {
+            if (state == newState && !retriggerVisibleEvent)
+            {
+                return;
+            }
+
+            state = newState;
+            switch (state)
+            {
+                case InvisibleRoadRevealState.Visible:
+                    onBecameVisible?.Invoke();
+                    break;
+                case InvisibleRoadRevealState.Fading:
+                    onFadeStarted?.Invoke();
+                    break;
+                case InvisibleRoadRevealState.Transparent:
+                    onBecameTransparent?.Invoke();
+                    break;
+            }
+        }
+
+        private void OnValidate()
+        {
+            revealRadius = Mathf.Max(0.1f, revealRadius);
+            visibleDuration = Mathf.Max(0f, visibleDuration);
+            fadeDuration = Mathf.Max(0.01f, fadeDuration);
+            EnsurePhysicalRoad();
+        }
+
         private void OnDrawGizmosSelected()
         {
-            Gizmos.color = new Color(0.2f, 0.8f, 1f, 0.4f);
+            Gizmos.color = new Color(0.2f, 0.9f, 1f, 0.5f);
             Gizmos.DrawWireSphere(transform.position, revealRadius);
         }
     }

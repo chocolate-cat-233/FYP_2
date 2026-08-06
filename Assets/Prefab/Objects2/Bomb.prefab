@@ -180,7 +180,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0f87143938a1db44da23a4890b6e373b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  gravityMultiplier: 2
+  gravityMultiplier: 1
 --- !u!1 &5952191821427178339
 GameObject:
   m_ObjectHideFlags: 0
