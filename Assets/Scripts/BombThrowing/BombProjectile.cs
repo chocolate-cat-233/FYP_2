@@ -385,6 +385,19 @@ namespace SuperFinalFuse.BombThrowing
             return true;
         }
 
+        public bool ForceDrop(float downwardSpeed)
+        {
+            if (state != BombProjectileState.Flying || bombBody == null)
+            {
+                return false;
+            }
+
+            bombBody.linearVelocity = Vector3.down *
+                                      Mathf.Max(0f, downwardSpeed);
+            bombBody.angularVelocity = Vector3.zero;
+            return true;
+        }
+
         private void SetBombCollidersEnabled(bool value)
         {
             foreach (Collider projectileCollider in bombColliders)
