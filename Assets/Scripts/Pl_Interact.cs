@@ -21,8 +21,29 @@ public class Pl_Interact : MonoBehaviour
     private Movable activeMovable;
     private PlayerState stateBeforeMoving;
     private Vector3 playerOffsetFromMovable;
+    private bool isInputBlocked;
 
     public int NearbyInteractableCount => nearbyInteractables.Count;
+
+    public void CancelCurrentInteraction()
+    {
+        CancelMoveToStandPoint();
+        StopMovableInteraction();
+    }
+
+    public void SetInputBlocked(bool blocked)
+    {
+        if (isInputBlocked == blocked)
+        {
+            return;
+        }
+
+        isInputBlocked = blocked;
+        if (isInputBlocked)
+        {
+            CancelCurrentInteraction();
+        }
+    }
 
     private void Update()
     {
@@ -123,6 +144,11 @@ public class Pl_Interact : MonoBehaviour
 
     private void HandleInteractPressed()
     {
+        if (isInputBlocked)
+        {
+            return;
+        }
+
         if (isMovingMovable)
         {
             StopMovableInteraction();
@@ -410,8 +436,7 @@ public class Pl_Interact : MonoBehaviour
 
     private void OnDisable()
     {
-        CancelMoveToStandPoint();
-        StopMovableInteraction();
+        CancelCurrentInteraction();
         UnsubscribeFromInput();
         nearbyInteractables.Clear();
     }

@@ -8,6 +8,7 @@ namespace SuperFinalFuse.PlayerLife
         Lava,
         BombBlast,
         OwnBombBlast,
+        EnemyCharge,
         Void
     }
 

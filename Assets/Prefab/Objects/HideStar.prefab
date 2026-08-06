@@ -95,7 +95,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fd4a2d5b35a5ab049901019682d0d7ad, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  floatHeight: 0.25
+  floatHeight: 0.1
   floatSpeed: 1
   rotationSpeed: {x: 0, y: 90, z: 0}
 --- !u!1001 &4243760701269746830
