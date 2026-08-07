@@ -9,6 +9,8 @@ public sealed class InputManager : MonoBehaviour
     [SerializeField] private InputActionReference interactAction;
 
     private bool isInputReady;
+    private InputAction bombAimAction;
+    private InputAction bombThrowAction;
 
     /// <summary>
     /// The current device-independent movement input.
@@ -21,6 +23,14 @@ public sealed class InputManager : MonoBehaviour
     /// Raised once when the interact button is performed.
     /// </summary>
     public event Action InteractPressed;
+    public bool BombAimHeld =>
+        isInputReady && bombAimAction != null && bombAimAction.IsPressed();
+    public bool BombAimPressedThisFrame =>
+        isInputReady && bombAimAction != null &&
+        bombAimAction.WasPressedThisFrame();
+    public bool BombThrowPressedThisFrame =>
+        isInputReady && bombThrowAction != null &&
+        bombThrowAction.WasPressedThisFrame();
 
     private void OnEnable()
     {
@@ -33,6 +43,8 @@ public sealed class InputManager : MonoBehaviour
         interactAction.action.performed += OnInteractPerformed;
         moveAction.action.Enable();
         interactAction.action.Enable();
+        bombAimAction.Enable();
+        bombThrowAction.Enable();
         isInputReady = true;
     }
 
@@ -46,6 +58,8 @@ public sealed class InputManager : MonoBehaviour
         interactAction.action.performed -= OnInteractPerformed;
         moveAction.action.Disable();
         interactAction.action.Disable();
+        bombAimAction?.Disable();
+        bombThrowAction?.Disable();
         isInputReady = false;
     }
 
@@ -92,6 +106,27 @@ public sealed class InputManager : MonoBehaviour
             Debug.LogError(
                 $"The Interact action assigned to {nameof(InputManager)} on '{name}' " +
                 "must be a Button action.",
+                this);
+            return false;
+        }
+
+        InputActionMap playerMap = moveAction.action.actionMap;
+        bombAimAction = playerMap?.FindAction("BombAim", false);
+        bombThrowAction = playerMap?.FindAction("BombThrow", false);
+        if (bombAimAction == null || bombThrowAction == null)
+        {
+            Debug.LogError(
+                $"{nameof(InputManager)} on '{name}' requires BombAim and " +
+                "BombThrow actions in the same action map as Move.",
+                this);
+            return false;
+        }
+
+        if (bombAimAction.type != InputActionType.Button ||
+            bombThrowAction.type != InputActionType.Button)
+        {
+            Debug.LogError(
+                "BombAim and BombThrow must both be Button actions.",
                 this);
             return false;
         }
