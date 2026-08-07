@@ -22,13 +22,20 @@ namespace SuperFinalFuse.BombThrowing
         [SerializeField] private float dashWorldLength = 0.3f;
         [SerializeField] private Color safeColor = Color.white;
         [SerializeField] private Color dangerousColor = Color.red;
+        [SerializeField] private Color outlineColor =
+            new Color(0f, 0f, 0f, 0.9f);
+        [Range(1f, 4f)]
+        [SerializeField] private float outlineWidthMultiplier = 2.2f;
 
         private readonly List<Vector3> points = new List<Vector3>(128);
         private readonly RaycastHit[] hitBuffer = new RaycastHit[32];
         private LineRenderer line;
+        private LineRenderer outlineLine;
         private Material lineMaterial;
+        private Material outlineMaterial;
         private Texture2D dashTexture;
         private Collider[] playerColliders;
+        private int simulatedBombLayer;
 
         public bool IsVisible => line != null && line.enabled;
         public bool IsDangerous { get; private set; }
@@ -61,6 +68,9 @@ namespace SuperFinalFuse.BombThrowing
             line.enabled = points.Count > 1;
             line.positionCount = points.Count;
             line.SetPositions(points.ToArray());
+            outlineLine.enabled = points.Count > 1;
+            outlineLine.positionCount = points.Count;
+            outlineLine.SetPositions(points.ToArray());
             Color color = IsDangerous ? dangerousColor : safeColor;
             line.startColor = color;
             line.endColor = color;
@@ -71,6 +81,11 @@ namespace SuperFinalFuse.BombThrowing
                 lineMaterial.mainTextureScale = new Vector2(
                     Mathf.Max(1f, length / dashWorldLength),
                     1f);
+                if (outlineMaterial != null)
+                {
+                    outlineMaterial.mainTextureScale =
+                        lineMaterial.mainTextureScale;
+                }
             }
         }
 
@@ -81,6 +96,11 @@ namespace SuperFinalFuse.BombThrowing
             {
                 line.enabled = false;
                 line.positionCount = 0;
+            }
+            if (outlineLine != null)
+            {
+                outlineLine.enabled = false;
+                outlineLine.positionCount = 0;
             }
         }
 
@@ -96,6 +116,7 @@ namespace SuperFinalFuse.BombThrowing
             float gravityMultiplier = Mathf.Max(
                 0f,
                 prefab.EffectiveGravityMultiplier);
+            simulatedBombLayer = prefab.gameObject.layer;
             Vector3 gravity = Physics.gravity * gravityMultiplier;
             float radius = GetBombRadius(prefab);
             Vector3 position = origin;
@@ -159,6 +180,10 @@ namespace SuperFinalFuse.BombThrowing
             {
                 Collider target = hitBuffer[i].collider;
                 if (target == null || IsPlayerCollider(target) ||
+                    Physics.GetIgnoreLayerCollision(
+                        simulatedBombLayer,
+                        target.gameObject.layer) ||
+                    ShouldIgnoreTrigger(target) ||
                     hitBuffer[i].distance >= nearestDistance)
                 {
                     continue;
@@ -168,6 +193,28 @@ namespace SuperFinalFuse.BombThrowing
                 nearestDistance = hitBuffer[i].distance;
             }
             return nearest.collider != null;
+        }
+
+        private static bool ShouldIgnoreTrigger(Collider target)
+        {
+            if (!target.isTrigger)
+            {
+                return false;
+            }
+
+            MonoBehaviour[] behaviours =
+                target.GetComponentsInParent<MonoBehaviour>(true);
+            foreach (MonoBehaviour behaviour in behaviours)
+            {
+                if (behaviour is Interactions.IBombDirectHitReceiver)
+                {
+                    return false;
+                }
+            }
+
+            // BombProjectile ignores an unhandled trigger because its default
+            // explosion is restricted to solid collisions.
+            return true;
         }
 
         private bool PredictsExplosionOn(Collider target)
@@ -263,11 +310,29 @@ namespace SuperFinalFuse.BombThrowing
             line.useWorldSpace = true;
             line.loop = false;
             line.widthMultiplier = lineWidth;
-            line.textureMode = LineTextureMode.Tile;
+            line.textureMode = LineTextureMode.Stretch;
             line.alignment = LineAlignment.View;
             line.shadowCastingMode =
                 UnityEngine.Rendering.ShadowCastingMode.Off;
             line.receiveShadows = false;
+            line.sortingOrder = 101;
+
+            GameObject outlineObject =
+                new GameObject("Bomb Trajectory Outline");
+            outlineObject.transform.SetParent(transform, false);
+            outlineLine = outlineObject.AddComponent<LineRenderer>();
+            outlineLine.useWorldSpace = true;
+            outlineLine.loop = false;
+            outlineLine.widthMultiplier =
+                lineWidth * outlineWidthMultiplier;
+            outlineLine.textureMode = LineTextureMode.Stretch;
+            outlineLine.alignment = LineAlignment.View;
+            outlineLine.startColor = outlineColor;
+            outlineLine.endColor = outlineColor;
+            outlineLine.shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            outlineLine.receiveShadows = false;
+            outlineLine.sortingOrder = 100;
 
             dashTexture = new Texture2D(16, 1, TextureFormat.RGBA32, false)
             {
@@ -286,10 +351,10 @@ namespace SuperFinalFuse.BombThrowing
             }
             dashTexture.Apply();
 
-            Shader shader = Shader.Find("Sprites/Default");
+            Shader shader = Shader.Find("Custom/BombTrajectoryOverlay");
             if (shader == null)
             {
-                shader = Shader.Find("Universal Render Pipeline/Unlit");
+                shader = Shader.Find("Sprites/Default");
             }
             if (shader != null)
             {
@@ -299,6 +364,14 @@ namespace SuperFinalFuse.BombThrowing
                     mainTexture = dashTexture
                 };
                 line.material = lineMaterial;
+
+                outlineMaterial = new Material(shader)
+                {
+                    name = "Runtime Bomb Trajectory Outline Material",
+                    mainTexture = dashTexture,
+                    color = Color.white
+                };
+                outlineLine.material = outlineMaterial;
             }
         }
 
@@ -317,6 +390,10 @@ namespace SuperFinalFuse.BombThrowing
             if (lineMaterial != null)
             {
                 Destroy(lineMaterial);
+            }
+            if (outlineMaterial != null)
+            {
+                Destroy(outlineMaterial);
             }
             if (dashTexture != null)
             {
