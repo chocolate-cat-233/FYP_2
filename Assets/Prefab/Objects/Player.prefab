@@ -409,12 +409,13 @@ MonoBehaviour:
   bombPrefab: {fileID: 6973244640082355146, guid: 4b07bdc868af5f146866ffab25a61dd8, type: 3}
   throwOrigin: {fileID: 3597869446940564782}
   cameraTransform: {fileID: 0}
+  inputManager: {fileID: 475101219704549856}
   throwSpeed: 8
   trajectory: 1
   angledThrowDegrees: 15.8
   fallbackThrowHeight: 3
   useCameraDirection: 0
-  keyboardThrowKey: 31
+  trajectoryHoldDuration: 0.3
   maximumThrowLockDuration: 3
 --- !u!114 &1768237869101731269
 MonoBehaviour:
