@@ -89,11 +89,11 @@ namespace SuperFinalFuse.Enemies
         private float attackResumeTime;
         private Vector3 lastMovementPosition;
         private Vector3 shieldKnockbackDirection;
-        private bool isForcingShieldKnockback;
-        private bool shieldBodyWasKinematic;
-        private bool shieldBodyUsedGravity;
-        private bool shieldBodyDetectedCollisions;
         private bool isConfigured;
+        private bool waitForPlayerReentry;
+        private Transform spawnCoordinateSpace;
+        private Vector3 spawnLocalPosition;
+        private Quaternion spawnLocalRotation;
 
         public ChargingEnemyState State { get; private set; } =
             ChargingEnemyState.Waiting;
@@ -112,6 +112,22 @@ namespace SuperFinalFuse.Enemies
             {
                 enemyBody = GetComponent<Rigidbody>();
             }
+
+            spawnCoordinateSpace = transform.parent;
+            Vector3 initialWorldPosition = enemyBody != null
+                ? enemyBody.position
+                : transform.position;
+            Quaternion initialWorldRotation = enemyBody != null
+                ? enemyBody.rotation
+                : transform.rotation;
+            spawnLocalPosition = spawnCoordinateSpace != null
+                ? spawnCoordinateSpace.InverseTransformPoint(
+                    initialWorldPosition)
+                : initialWorldPosition;
+            spawnLocalRotation = spawnCoordinateSpace != null
+                ? Quaternion.Inverse(spawnCoordinateSpace.rotation) *
+                  initialWorldRotation
+                : initialWorldRotation;
 
             enemyCollider = GetComponent<Collider>();
 
@@ -137,6 +153,8 @@ namespace SuperFinalFuse.Enemies
                 return;
             }
 
+            SubscribeToTargetDeath();
+
             State = ChargingEnemyState.Waiting;
             IsPlayerInsideAttackArea = false;
             IsEnemyInsideAttackArea = false;
@@ -148,7 +166,7 @@ namespace SuperFinalFuse.Enemies
 
         private void OnDisable()
         {
-            RestoreBodyAfterShieldKnockback();
+            UnsubscribeFromTargetDeath();
             if (enemyBody != null && !enemyBody.isKinematic)
             {
                 StopHorizontalMovement();
@@ -193,6 +211,17 @@ namespace SuperFinalFuse.Enemies
             }
 
             IsPlayerInsideAttackArea = IsTargetOverlappingAttackArea();
+            if (waitForPlayerReentry)
+            {
+                if (!IsPlayerInsideAttackArea)
+                {
+                    waitForPlayerReentry = false;
+                }
+
+                EnterWaiting();
+                return;
+            }
+
             if (!IsPlayerInsideAttackArea)
             {
                 EnterWaiting();
@@ -230,6 +259,8 @@ namespace SuperFinalFuse.Enemies
 
         public void SetTarget(Transform newTarget)
         {
+            UnsubscribeFromTargetDeath();
+
             target = newTarget;
             targetHealth = target != null
                 ? target.GetComponentInParent<PlayerHealth>()
@@ -243,6 +274,8 @@ namespace SuperFinalFuse.Enemies
             targetColliders = target != null
                 ? target.GetComponentsInChildren<Collider>(true)
                 : Array.Empty<Collider>();
+
+            SubscribeToTargetDeath();
         }
 
         private void RefreshAttackAreaState()
@@ -535,27 +568,29 @@ namespace SuperFinalFuse.Enemies
                 playersHitThisCharge.Add(health);
             }
 
-            if (!health.IsDead)
+            if (health.IsDead)
             {
-                PlayerKnockbackReceiver knockbackReceiver =
-                    health.GetComponentInParent<PlayerKnockbackReceiver>();
-                if (knockbackReceiver == null)
-                {
-                    Debug.LogError(
-                        $"{nameof(ChargingEnemyController)} on '{name}' " +
-                        $"damaged '{health.name}', but the player has no " +
-                        $"{nameof(PlayerKnockbackReceiver)} component.",
-                        this);
-                }
-                else
-                {
-                    Vector3 initialVelocity =
-                        GetHorizontalForward() * playerKnockbackSpeed;
-                    knockbackReceiver.ApplyKnockback(
-                        initialVelocity,
-                        playerKnockbackDuration,
-                        transform);
-                }
+                return true;
+            }
+
+            PlayerKnockbackReceiver knockbackReceiver =
+                health.GetComponentInParent<PlayerKnockbackReceiver>();
+            if (knockbackReceiver == null)
+            {
+                Debug.LogError(
+                    $"{nameof(ChargingEnemyController)} on '{name}' " +
+                    $"damaged '{health.name}', but the player has no " +
+                    $"{nameof(PlayerKnockbackReceiver)} component.",
+                    this);
+            }
+            else
+            {
+                Vector3 initialVelocity =
+                    GetHorizontalForward() * playerKnockbackSpeed;
+                knockbackReceiver.ApplyKnockback(
+                    initialVelocity,
+                    playerKnockbackDuration,
+                    transform);
             }
 
             BeginDamageWait();
@@ -636,24 +671,16 @@ namespace SuperFinalFuse.Enemies
 
         private void UpdateShieldKnockback(float deltaTime)
         {
-            float retreatSpeed =
-                shieldKnockbackDistance / shieldKnockbackDuration;
-            float remainingDistance = Mathf.Max(
-                0f,
-                shieldKnockbackDistance - movementDistance);
-            float stepDistance = Mathf.Min(
-                retreatSpeed * deltaTime,
-                remainingDistance);
-
-            enemyBody.position +=
-                shieldKnockbackDirection * stepDistance;
-            movementDistance += stepDistance;
+            AccumulateMovementDistance(shieldKnockbackDirection);
             stateTimeRemaining -= deltaTime;
             if (movementDistance >= shieldKnockbackDistance ||
                 stateTimeRemaining <= 0f)
             {
                 CompleteShieldKnockback();
+                return;
             }
+
+            ApplyShieldKnockbackVelocity();
         }
 
         private void BeginApproachStep(ChargingEnemyState approachState)
@@ -707,21 +734,16 @@ namespace SuperFinalFuse.Enemies
             ChargeDirection = Vector3.zero;
             playersHitThisCharge.Clear();
             StopHorizontalMovement();
-
-            shieldBodyWasKinematic = enemyBody.isKinematic;
-            shieldBodyUsedGravity = enemyBody.useGravity;
-            shieldBodyDetectedCollisions = enemyBody.detectCollisions;
-            enemyBody.useGravity = false;
-            enemyBody.isKinematic = true;
-            enemyBody.detectCollisions = false;
-            isForcingShieldKnockback = true;
+            lastMovementPosition = enemyBody.position;
 
             SetState(ChargingEnemyState.ShieldKnockback);
+            ApplyShieldKnockbackVelocity();
         }
 
         private void CompleteShieldKnockback()
         {
-            RestoreBodyAfterShieldKnockback();
+            StopHorizontalMovement();
+            shieldKnockbackDirection = Vector3.zero;
             RefreshAttackAreaState();
 
             if (!IsEnemyInsideAttackArea ||
@@ -735,17 +757,12 @@ namespace SuperFinalFuse.Enemies
             BeginApproachStep(ChargingEnemyState.ApproachStepOne);
         }
 
-        private void RestoreBodyAfterShieldKnockback()
+        private void ApplyShieldKnockbackVelocity()
         {
-            if (!isForcingShieldKnockback || enemyBody == null)
-            {
-                return;
-            }
-
-            enemyBody.isKinematic = shieldBodyWasKinematic;
-            enemyBody.useGravity = shieldBodyUsedGravity;
-            enemyBody.detectCollisions = shieldBodyDetectedCollisions;
-            isForcingShieldKnockback = false;
+            float retreatSpeed =
+                shieldKnockbackDistance / shieldKnockbackDuration;
+            SetHorizontalVelocity(
+                shieldKnockbackDirection * retreatSpeed);
         }
 
         private void EnterWaiting()
@@ -755,7 +772,6 @@ namespace SuperFinalFuse.Enemies
                 return;
             }
 
-            RestoreBodyAfterShieldKnockback();
             StopHorizontalMovement();
             ChargeDirection = Vector3.zero;
             stateTimeRemaining = 0f;
@@ -788,6 +804,61 @@ namespace SuperFinalFuse.Enemies
             {
                 SetTarget(player.transform);
             }
+        }
+
+        private void SubscribeToTargetDeath()
+        {
+            if (!isActiveAndEnabled || targetHealth == null)
+            {
+                return;
+            }
+
+            targetHealth.Died -= HandlePlayerDied;
+            targetHealth.Died += HandlePlayerDied;
+        }
+
+        private void UnsubscribeFromTargetDeath()
+        {
+            if (targetHealth != null)
+            {
+                targetHealth.Died -= HandlePlayerDied;
+            }
+        }
+
+        private void HandlePlayerDied()
+        {
+            if (State == ChargingEnemyState.Dead)
+            {
+                return;
+            }
+
+            Vector3 spawnWorldPosition = spawnCoordinateSpace != null
+                ? spawnCoordinateSpace.TransformPoint(spawnLocalPosition)
+                : spawnLocalPosition;
+            Quaternion spawnWorldRotation = spawnCoordinateSpace != null
+                ? spawnCoordinateSpace.rotation * spawnLocalRotation
+                : spawnLocalRotation;
+
+            if (enemyBody != null)
+            {
+                enemyBody.position = spawnWorldPosition;
+                enemyBody.rotation = spawnWorldRotation;
+                enemyBody.linearVelocity = Vector3.zero;
+                enemyBody.angularVelocity = Vector3.zero;
+            }
+            else
+            {
+                transform.SetPositionAndRotation(
+                    spawnWorldPosition,
+                    spawnWorldRotation);
+            }
+
+            attackResumeTime = 0f;
+            waitForPlayerReentry = true;
+            IsPlayerInsideAttackArea = false;
+            IsEnemyInsideAttackArea =
+                IsEnemyColliderFullyInsideAttackArea(Vector3.zero);
+            EnterWaiting();
         }
 
         private bool HasUsableTarget()
@@ -910,7 +981,10 @@ namespace SuperFinalFuse.Enemies
 
         private void StopMovementWhenBlocked(Collision collision)
         {
-            if (State != ChargingEnemyState.Charge)
+            bool isCharge = State == ChargingEnemyState.Charge;
+            bool isShieldKnockback =
+                State == ChargingEnemyState.ShieldKnockback;
+            if (!isCharge && !isShieldKnockback)
             {
                 return;
             }
@@ -921,15 +995,27 @@ namespace SuperFinalFuse.Enemies
                 return;
             }
 
+            Vector3 movementDirection = isCharge
+                ? ChargeDirection
+                : shieldKnockbackDirection;
+
             for (int i = 0; i < collision.contactCount; i++)
             {
                 Vector3 normal = collision.GetContact(i).normal;
-                if (Vector3.Dot(normal, ChargeDirection) > -0.2f)
+                if (Vector3.Dot(normal, movementDirection) > -0.2f)
                 {
                     continue;
                 }
 
-                BeginChargeRecovery();
+                if (isShieldKnockback)
+                {
+                    CompleteShieldKnockback();
+                }
+                else
+                {
+                    BeginChargeRecovery();
+                }
+
                 return;
             }
         }
@@ -953,7 +1039,6 @@ namespace SuperFinalFuse.Enemies
                 return;
             }
 
-            RestoreBodyAfterShieldKnockback();
             StopHorizontalMovement();
             SetState(ChargingEnemyState.Dead);
             Died?.Invoke();

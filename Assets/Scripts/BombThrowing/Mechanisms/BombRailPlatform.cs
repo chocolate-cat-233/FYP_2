@@ -36,6 +36,10 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         [SerializeField] private float moveSpeed = 2f;
         [Min(0f)]
         [SerializeField] private float waitAtWaypoint = 0f;
+        [Tooltip("Additional wait applied at the first and last waypoint " +
+                 "when Route Mode is Ping Pong.")]
+        [Min(0f)]
+        [SerializeField] private float waitAtPingPongEndpoint = 0f;
         [SerializeField] private bool playOnAwake = true;
         [SerializeField] private bool snapToFirstWaypoint = true;
 
@@ -211,16 +215,31 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         private void ReachWaypoint()
         {
             onWaypointReached?.Invoke();
+            float waitTime = GetWaitTimeAtCurrentWaypoint();
             if (!AdvanceTarget())
             {
                 return;
             }
 
-            if (waitAtWaypoint > 0f)
+            if (waitTime > 0f)
             {
-                remainingWaitTime = waitAtWaypoint;
+                remainingWaitTime = waitTime;
                 state = RailPlatformState.Waiting;
             }
+        }
+
+        private float GetWaitTimeAtCurrentWaypoint()
+        {
+            int count = waypoints != null ? waypoints.Length : 0;
+            bool isPingPongEndpoint =
+                routeMode == RailPlatformRouteMode.PingPong &&
+                count >= 2 &&
+                (targetWaypointIndex == 0 ||
+                 targetWaypointIndex == count - 1);
+            return waitAtWaypoint +
+                   (isPingPongEndpoint
+                       ? waitAtPingPongEndpoint
+                       : 0f);
         }
 
         private bool AdvanceTarget()

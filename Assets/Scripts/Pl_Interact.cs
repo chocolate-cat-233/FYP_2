@@ -82,8 +82,19 @@ public class Pl_Interact : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if (!other.CompareTag(interactableTag) ||
-            nearbyInteractables.Contains(other))
+        if (other == null || !other.CompareTag(interactableTag))
+        {
+            return;
+        }
+
+        Hide hide = other.GetComponentInParent<Hide>();
+        if (hide != null)
+        {
+            hide.WhenBeTouch();
+            return;
+        }
+
+        if (nearbyInteractables.Contains(other))
         {
             return;
         }

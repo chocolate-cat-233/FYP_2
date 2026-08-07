@@ -60,9 +60,9 @@ public sealed class pl_Move : MonoBehaviour
     private readonly RaycastHit[] wallHitBuffer = new RaycastHit[16];
     private readonly RaycastHit[] groundHitBuffer = new RaycastHit[32];
     private Action<Vector3> horizontalMovementDriver;
-    private BombMovableIron groundIron;
-    private Rigidbody groundIronBody;
-    private Vector3 groundIronPosition;
+    private Behaviour groundCarrier;
+    private Rigidbody groundCarrierBody;
+    private Vector3 groundCarrierPosition;
 
     public bool IsGrounded { get; private set; }
     public bool IsMovingToTarget => isMovingToTarget;
@@ -88,7 +88,7 @@ public sealed class pl_Move : MonoBehaviour
         IsGrounded = false;
         isMovingToTarget = false;
         isMovementReady = true;
-        ClearGroundIron();
+        ClearGroundCarrier();
 
         stateManager.StateChanged += OnPlayerStateChanged;
         ApplyPlayerState(stateManager.CurrentState);
@@ -107,7 +107,7 @@ public sealed class pl_Move : MonoBehaviour
         IsGrounded = false;
         isMovingToTarget = false;
         isMovementReady = false;
-        ClearGroundIron();
+        ClearGroundCarrier();
         horizontalMovementDriver?.Invoke(Vector3.zero);
     }
 
@@ -119,7 +119,7 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         float deltaTime = Time.deltaTime;
-        ApplyGroundIronMovement();
+        ApplyGroundCarrierMovement();
 
         if (isMovingToTarget)
         {
@@ -468,8 +468,7 @@ public sealed class pl_Move : MonoBehaviour
     {
         if (TryGetGroundHit(out RaycastHit raycastHit))
         {
-            BombMovableIron hitIron =
-                raycastHit.collider.GetComponentInParent<BombMovableIron>();
+            Behaviour hitCarrier = GetGroundCarrier(raycastHit.collider);
             groundNormal = raycastHit.normal;
             float groundHeight = raycastHit.point.y + playerHeight / 2f;
             float bottomDistance = transform.position.y - groundHeight;
@@ -480,62 +479,70 @@ public sealed class pl_Move : MonoBehaviour
             if (reachedGround || canSnapDownSlope)
             {
                 IsGrounded = true;
-                float groundSkin = hitIron != null ? 0f : skin;
+                float groundSkin = hitCarrier != null ? 0f : skin;
                 transform.position = new Vector3(
                     transform.position.x,
                     groundHeight - groundSkin,
                     transform.position.z);
-                SetGroundIron(hitIron, raycastHit.rigidbody);
+                SetGroundCarrier(hitCarrier, raycastHit.rigidbody);
             }
             else
             {
                 IsGrounded = false;
-                ClearGroundIron();
+                ClearGroundCarrier();
             }
         }
-        else if (IsGrounded && HasAuxiliaryGroundSupport())
+        else if (IsGrounded &&
+                 TryGetAuxiliaryGroundSupport(
+                     out RaycastHit auxiliaryGroundHit))
         {
             IsGrounded = true;
-            ClearGroundIron();
+            groundNormal = auxiliaryGroundHit.normal;
+            SetGroundCarrier(
+                GetGroundCarrier(auxiliaryGroundHit.collider),
+                auxiliaryGroundHit.rigidbody);
         }
         else
         {
             IsGrounded = false;
             groundNormal = Vector3.up;
-            ClearGroundIron();
+            ClearGroundCarrier();
         }
     }
 
-    private void ApplyGroundIronMovement()
+    private void ApplyGroundCarrierMovement()
     {
         if (!IsGrounded ||
-            groundIron == null ||
-            groundIronBody == null ||
-            !groundIron.isActiveAndEnabled)
+            groundCarrier == null ||
+            groundCarrierBody == null ||
+            !groundCarrier.isActiveAndEnabled)
         {
-            ClearGroundIron();
+            ClearGroundCarrier();
             return;
         }
 
-        Vector3 currentIronPosition = groundIronBody.position;
-        transform.position += currentIronPosition - groundIronPosition;
-        groundIronPosition = currentIronPosition;
+        Vector3 currentCarrierPosition = groundCarrierBody.position;
+        transform.position +=
+            currentCarrierPosition - groundCarrierPosition;
+        groundCarrierPosition = currentCarrierPosition;
     }
 
-    private void SetGroundIron(BombMovableIron iron, Rigidbody ironBody)
+    private void SetGroundCarrier(
+        Behaviour carrier,
+        Rigidbody carrierBody)
     {
-        groundIron = iron;
-        groundIronBody = iron != null ? ironBody : null;
-        groundIronPosition = groundIronBody != null
-            ? groundIronBody.position
+        groundCarrier = carrier;
+        groundCarrierBody = carrier != null ? carrierBody : null;
+        groundCarrierPosition = groundCarrierBody != null
+            ? groundCarrierBody.position
             : Vector3.zero;
     }
 
-    private void ClearGroundIron()
+    private void ClearGroundCarrier()
     {
-        groundIron = null;
-        groundIronBody = null;
-        groundIronPosition = Vector3.zero;
+        groundCarrier = null;
+        groundCarrierBody = null;
+        groundCarrierPosition = Vector3.zero;
     }
 
     private bool TryGetGroundHit(out RaycastHit groundHit)
@@ -577,8 +584,10 @@ public sealed class pl_Move : MonoBehaviour
         return foundGround;
     }
 
-    private bool HasAuxiliaryGroundSupport()
+    private bool TryGetAuxiliaryGroundSupport(
+        out RaycastHit groundHit)
     {
+        groundHit = default;
         float currentGroundHeight = transform.position.y - playerHeight / 2f + skin;
         Vector3 groundProbeCenter = new Vector3(
             transform.position.x,
@@ -624,12 +633,30 @@ public sealed class pl_Move : MonoBehaviour
                 float bottomDistance = transform.position.y - groundHeight;
                 if (bottomDistance <= groundSnapDistance)
                 {
+                    groundHit = hit;
                     return true;
                 }
             }
         }
 
         return false;
+    }
+
+    private static Behaviour GetGroundCarrier(Collider groundCollider)
+    {
+        if (groundCollider == null)
+        {
+            return null;
+        }
+
+        BombMovableIron iron =
+            groundCollider.GetComponentInParent<BombMovableIron>();
+        if (iron != null)
+        {
+            return iron;
+        }
+
+        return groundCollider.GetComponentInParent<BombRailPlatform>();
     }
 
     private bool IsPlayerCollider(Collider hitCollider)
@@ -642,6 +669,7 @@ public sealed class pl_Move : MonoBehaviour
     {
         return hitCollider != null &&
                (hitCollider.CompareTag(GroundTag) ||
+                hitCollider.GetComponentInParent<BombRailPlatform>() != null ||
                 hitCollider.GetComponentInParent<
                     SuperFinalFuse.BombThrowing.Mechanisms.BombJumpPad>() != null ||
                 hitCollider.GetComponentInParent<
