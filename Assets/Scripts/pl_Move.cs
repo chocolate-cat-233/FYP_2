@@ -456,12 +456,23 @@ public sealed class pl_Move : MonoBehaviour
 
     private float GetPlayerWorldRadius()
     {
-        Vector3 colliderScale = playerCollider.transform.lossyScale;
+        return GetPlayerWorldRadius(playerCollider);
+    }
+
+    private static float GetPlayerWorldRadius(
+        CapsuleCollider capsuleCollider)
+    {
+        if (capsuleCollider == null)
+        {
+            return 0f;
+        }
+
+        Vector3 colliderScale = capsuleCollider.transform.lossyScale;
         float horizontalScale = Mathf.Max(
             Mathf.Abs(colliderScale.x),
             Mathf.Abs(colliderScale.z));
 
-        return playerCollider.radius * horizontalScale;
+        return capsuleCollider.radius * horizontalScale;
     }
 
     private void SnapOnGround()
@@ -547,11 +558,7 @@ public sealed class pl_Move : MonoBehaviour
 
     private bool TryGetGroundHit(out RaycastHit groundHit)
     {
-        float currentGroundHeight = transform.position.y - playerHeight / 2f + skin;
-        Vector3 rayOrigin = new Vector3(
-            transform.position.x,
-            currentGroundHeight + stepOffset + RayOriginOffset,
-            transform.position.z);
+        Vector3 rayOrigin = GetGroundProbeCenter();
         int hitCount = Physics.RaycastNonAlloc(
             rayOrigin,
             Vector3.down,
@@ -588,15 +595,9 @@ public sealed class pl_Move : MonoBehaviour
         out RaycastHit groundHit)
     {
         groundHit = default;
-        float currentGroundHeight = transform.position.y - playerHeight / 2f + skin;
-        Vector3 groundProbeCenter = new Vector3(
-            transform.position.x,
-            currentGroundHeight + stepOffset + RayOriginOffset,
-            transform.position.z);
-        float playerWorldRadius = GetPlayerWorldRadius();
-        float groundProbeRadius = Mathf.Min(
-            playerWorldRadius * GroundProbeRadiusScale,
-            Mathf.Max(0f, playerWorldRadius - skin));
+        Vector3 groundProbeCenter = GetGroundProbeCenter();
+        float groundProbeRadius =
+            GetGroundProbeRadius(playerCollider);
 
         if (groundProbeRadius <= InputDeadZone)
         {
@@ -640,6 +641,99 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         return false;
+    }
+
+    private Vector3 GetGroundProbeCenter()
+    {
+        float currentGroundHeight =
+            transform.position.y - playerHeight / 2f + skin;
+        return new Vector3(
+            transform.position.x,
+            currentGroundHeight + stepOffset + RayOriginOffset,
+            transform.position.z);
+    }
+
+    private float GetGroundProbeRadius(
+        CapsuleCollider capsuleCollider)
+    {
+        float playerWorldRadius =
+            GetPlayerWorldRadius(capsuleCollider);
+        return Mathf.Min(
+            playerWorldRadius * GroundProbeRadiusScale,
+            Mathf.Max(0f, playerWorldRadius - skin));
+    }
+
+    private float GetAuxiliaryGroundSupportDistance()
+    {
+        return Mathf.Max(
+            stepOffset + groundSnapDistance + skin + RayOriginOffset,
+            0.1f);
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        CapsuleCollider capsuleCollider = playerCollider != null
+            ? playerCollider
+            : GetComponent<CapsuleCollider>();
+        if (capsuleCollider == null)
+        {
+            return;
+        }
+
+        Vector3 probeCenter = GetGroundProbeCenter();
+        float supportDistance =
+            GetAuxiliaryGroundSupportDistance();
+
+        Gizmos.color = Color.yellow;
+        DrawGroundProbeGizmo(probeCenter, supportDistance);
+
+        float probeRadius = GetGroundProbeRadius(capsuleCollider);
+        if (probeRadius <= InputDeadZone)
+        {
+            return;
+        }
+
+        Gizmos.color = Color.cyan;
+        for (int i = 0; i < GroundProbeDirections.Length; i++)
+        {
+            Vector3 probeOrigin =
+                probeCenter + GroundProbeDirections[i] * probeRadius;
+            DrawGroundProbeGizmo(probeOrigin, supportDistance);
+        }
+
+        Gizmos.color = new Color(1f, 0.5f, 0f);
+        Vector3 firstLimitPoint = Vector3.zero;
+        Vector3 previousLimitPoint = Vector3.zero;
+        for (int i = 0; i < GroundProbeDirections.Length; i++)
+        {
+            Vector3 probeOrigin =
+                probeCenter + GroundProbeDirections[i] * probeRadius;
+            Vector3 limitPoint =
+                probeOrigin + Vector3.down * supportDistance;
+
+            Gizmos.DrawWireSphere(limitPoint, 0.025f);
+            if (i == 0)
+            {
+                firstLimitPoint = limitPoint;
+            }
+            else
+            {
+                Gizmos.DrawLine(previousLimitPoint, limitPoint);
+            }
+
+            previousLimitPoint = limitPoint;
+        }
+
+        Gizmos.DrawLine(previousLimitPoint, firstLimitPoint);
+    }
+
+    private static void DrawGroundProbeGizmo(
+        Vector3 origin,
+        float length)
+    {
+        const float OriginRadius = 0.025f;
+        Gizmos.DrawWireSphere(origin, OriginRadius);
+        Gizmos.DrawLine(origin, origin + Vector3.down * length);
     }
 
     private static Behaviour GetGroundCarrier(Collider groundCollider)
