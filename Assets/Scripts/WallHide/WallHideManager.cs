@@ -5,13 +5,13 @@ namespace SuperFinalFuse.WallHide
 {
     /// <summary>
     /// Hides walls and obstacles that occlude the target: every frame it
-    /// sphere-casts from the camera towards the target and pushes the target's
-    /// screen-space circle into global shader arrays (_WallHidePoints /
-    /// _WallHideStrengths). Renderers whose shader reads those globals
-    /// (Custom/WallHideLit) cut a hole where the target appears on screen;
-    /// renderers with any other material are swapped to fallbackRevealMaterial
-    /// while hidden and restored afterwards, so the system also works with
-    /// URP/Lit materials.
+    /// sphere-casts from the camera towards the target and, for every hit
+    /// renderer, writes the target's screen-space hide circle (_WallHidePoint)
+    /// via MaterialPropertyBlock. Only the renderers actually detected as
+    /// occluders receive the circle, so other objects sharing the same
+    /// material (Custom/WallHideLit) keep rendering normally; renderers with
+    /// any other material are swapped to fallbackRevealMaterial while hidden
+    /// and restored afterwards, so the system also works with URP/Lit.
     ///
     /// Runs in LateUpdate (after the camera rig) with DefaultExecutionOrder 100.
     /// </summary>
@@ -19,8 +19,6 @@ namespace SuperFinalFuse.WallHide
     [DisallowMultipleComponent]
     public sealed class WallHideManager : MonoBehaviour
     {
-        // ── Constants ────────────────────────────────────────────────────
-        private const int MaxHidePoints = 16;
 
         [Header("References (wire in the Inspector)")]
         [SerializeField] private Transform target;
@@ -41,21 +39,32 @@ namespace SuperFinalFuse.WallHide
         [Min(1f)] [SerializeField] private float halftoneCellSize = 4f;
 
         [Header("Fallback")]
-        [Tooltip("Material swapped in for renderers whose shader does not read _WallHidePoints (e.g. URP/Lit). Usually a Custom/WallHideLit material.")]
+        [Tooltip("Material swapped in for renderers whose shader does not read _WallHidePoint (e.g. URP/Lit). Usually a Custom/WallHideLit material.")]
         [SerializeField] private Material fallbackRevealMaterial;
 
         [Header("Debug")]
         [SerializeField] private bool debugDraw;
 
-        // ── Shader globals ───────────────────────────────────────────────
-        private readonly Vector4[] _points    = new Vector4[MaxHidePoints];
-        private readonly float[]   _strengths = new float[MaxHidePoints];
-        private float _strength;   // current hole strength 0..1, faded in/out
+        // ── Per-occluder property block ─────────────────────────────────
+        // Note: not readonly, and re-seeded in EnsureFieldInitializers —
+        // Unity's script reload restores fields from a serialized snapshot
+        // where empty collections come back as null.
+        private static readonly int _hidePointId = Shader.PropertyToID("_WallHidePoint");
+        // Created in EnsureFieldInitializers, not here: native-implemented
+        // classes must not be instantiated in a MonoBehaviour constructor /
+        // field initializer (throws UnityException).
+        private MaterialPropertyBlock _propertyBlock;
+        private Vector3 _lastCircle;   // cached hide circle (xy = centre px, z = full radius px)
+
+        // Per-renderer fade strength (0..1); each occluder fades in/out on
+        // its own schedule instead of sharing one global strength.
+        private Dictionary<Renderer, float> _occluderFades = new Dictionary<Renderer, float>();
+        private List<Renderer> _finishedFades = new List<Renderer>(8);
+        private List<KeyValuePair<Renderer, float>> _fadeUpdates = new List<KeyValuePair<Renderer, float>>(8);
 
         // ── Per-frame detection ──────────────────────────────────────────
         private RaycastHit[] _hitBuffer = new RaycastHit[64];
-        private readonly List<Renderer> _hiddenRenderers = new List<Renderer>(16);
-        private bool _hadHiddenThisFrame;
+        private List<Renderer> _hiddenRenderers = new List<Renderer>(16);
 
         // Cached target components (resolved once — the player hierarchy does
         // not change at runtime).
@@ -63,8 +72,8 @@ namespace SuperFinalFuse.WallHide
         private Renderer[] _cachedRenderers;
 
         // ── Fallback material-swap path ──────────────────────────────────
-        private readonly Dictionary<Renderer, Material[]> _swappedOriginals = new Dictionary<Renderer, Material[]>();
-        private readonly List<Renderer> _restoreList = new List<Renderer>(8);
+        private Dictionary<Renderer, Material[]> _swappedOriginals = new Dictionary<Renderer, Material[]>();
+        private List<Renderer> _restoreList = new List<Renderer>(8);
         private bool _warnedNoFallbackMaterial;
 
         // ── Debug state ──────────────────────────────────────────────────
@@ -73,6 +82,8 @@ namespace SuperFinalFuse.WallHide
         // ── Unity messages ───────────────────────────────────────────────
         private void Awake()
         {
+            EnsureFieldInitializers();
+
             if (target == null)
             {
                 target = FindTargetWithTag("Player");
@@ -92,7 +103,7 @@ namespace SuperFinalFuse.WallHide
             }
 
             CacheTargetComponents();
-            PushToShader();
+            PushGlobalSettings();
         }
 
         private void LateUpdate()
@@ -100,23 +111,22 @@ namespace SuperFinalFuse.WallHide
             if (target == null || targetCamera == null)
                 return;
 
+            EnsureFieldInitializers();
             UpdateHiding();
-            UpdateStrength();
-            PushToShader();
         }
 
         private void OnDisable()
         {
+            EnsureFieldInitializers();
+            ReleaseAllOccluders();
             RestoreAllSwappedMaterials();
         }
 
         private void OnDestroy()
         {
+            EnsureFieldInitializers();
+            ReleaseAllOccluders();
             RestoreAllSwappedMaterials();
-            _strength = 0f;
-            System.Array.Clear(_points, 0, MaxHidePoints);
-            System.Array.Clear(_strengths, 0, MaxHidePoints);
-            PushToShader();
         }
 
         // ── Detection ────────────────────────────────────────────────────
@@ -141,30 +151,88 @@ namespace SuperFinalFuse.WallHide
                 }
             }
 
-            _hadHiddenThisFrame = _hiddenRenderers.Count > 0;
-            if (_hadHiddenThisFrame)
+            if (_hiddenRenderers.Count > 0)
             {
                 // Enclosing circle: centre of the projected bounds, radius
                 // covering the largest screen extent plus padding (pixels).
                 float halfW = (rectMax.x - rectMin.x) * 0.5f;
                 float halfH = (rectMax.y - rectMin.y) * 0.5f;
-                float radiusPx = Mathf.Max(halfW, halfH) + paddingPixels;
-
-                _points[0] = new Vector4(
+                _lastCircle = new Vector3(
                     rectMin.x + halfW,   // centre x (pixels, bottom-left origin)
                     rectMin.y + halfH,   // centre y (pixels)
-                    radiusPx,            // radius (pixels)
-                    0f);
+                    Mathf.Max(halfW, halfH) + paddingPixels);   // radius (pixels)
             }
 
-            // Native path (shader reads the globals) needs nothing per
-            // renderer; unsupported materials swap to the fallback instead.
+            UpdateOccluderFades();
+
+            // Fallback path (materials without the hiding property) needs a
+            // per-renderer material swap instead of the property block.
             for (int i = 0; i < _hiddenRenderers.Count; i++)
             {
                 HideRenderer(_hiddenRenderers[i]);
             }
 
             RestoreNoLongerHiddenRenderers();
+        }
+
+        /// <summary>
+        /// Fades every tracked occluder towards its own target strength (1
+        /// while detected this frame, 0 otherwise). Objects that just started
+        /// occluding fade in from 0; objects that left the line of sight fade
+        /// out and release their property block, while the others stay fully
+        /// hidden — each object fades independently.
+        /// </summary>
+        private void UpdateOccluderFades()
+        {
+            // New occluders enter the fade map at 0 and grow in.
+            for (int i = 0; i < _hiddenRenderers.Count; i++)
+            {
+                if (!_occluderFades.ContainsKey(_hiddenRenderers[i]))
+                    _occluderFades[_hiddenRenderers[i]] = 0f;
+            }
+
+            float step = fadeSpeed * Time.deltaTime;
+
+            // Advance every tracked fade. The dictionary must not be touched
+            // while enumerating (even updating an existing key's value throws
+            // InvalidOperationException), so both the finished keys and the
+            // new values are collected into reusable lists first.
+            _finishedFades.Clear();
+            _fadeUpdates.Clear();
+            foreach (KeyValuePair<Renderer, float> kvp in _occluderFades)
+            {
+                float fade = Mathf.MoveTowards(kvp.Value, _hiddenRenderers.Contains(kvp.Key) ? 1f : 0f, step);
+                if (fade <= 0.001f)
+                    _finishedFades.Add(kvp.Key);
+                else
+                    _fadeUpdates.Add(new KeyValuePair<Renderer, float>(kvp.Key, fade));
+            }
+
+            for (int i = 0; i < _fadeUpdates.Count; i++)
+            {
+                _occluderFades[_fadeUpdates[i].Key] = _fadeUpdates[i].Value;
+            }
+
+            for (int i = 0; i < _finishedFades.Count; i++)
+            {
+                Renderer renderer = _finishedFades[i];
+                _occluderFades.Remove(renderer);
+                if (renderer != null)
+                    renderer.SetPropertyBlock(null);
+            }
+
+            // Apply the shared circle scaled by each object's own fade, so the
+            // hole grows/shrinks as that object fades in/out.
+            foreach (KeyValuePair<Renderer, float> kvp in _occluderFades)
+            {
+                Renderer renderer = kvp.Key;
+                if (renderer == null)
+                    continue;   // destroyed mid-fade; cleaned up on later frames
+
+                _propertyBlock.SetVector(_hidePointId, new Vector4(
+                    _lastCircle.x, _lastCircle.y, _lastCircle.z * kvp.Value, 0f));
+                renderer.SetPropertyBlock(_propertyBlock);
+            }
         }
 
         private void CollectHiddenRenderers(Vector3 camPos, Vector3 direction, float distance)
@@ -279,22 +347,30 @@ namespace SuperFinalFuse.WallHide
             return hasBounds ? bounds : new Bounds(target.position, Vector3.one * 0.5f);
         }
 
-        // ── Fade + push ──────────────────────────────────────────────────
-        private void UpdateStrength()
+        // ── Settings ─────────────────────────────────────────────────────
+        /// <summary>
+        /// Look settings shared by every WallHideLit material; pushed once.
+        /// </summary>
+        private void PushGlobalSettings()
         {
-            float targetStrength = _hadHiddenThisFrame ? 1f : 0f;
-            _strength = Mathf.MoveTowards(_strength, targetStrength, fadeSpeed * Time.deltaTime);
-            _strengths[0] = _strength;
-            // _points[0] keeps the last rect while fading out — the shader
-            // scales the rect by the strength, so the hole shrinks to nothing.
+            Shader.SetGlobalFloat("_HideSoftness", hideSoftness);
+            Shader.SetGlobalFloat("_HideHalftoneCellSize", halftoneCellSize);
         }
 
-        private void PushToShader()
+        /// <summary>
+        /// Removes the property block from every tracked occluder, so each
+        /// renderer falls back to the material default radius 0 (no hiding).
+        /// Note this clears the whole block, so a renderer whose block is
+        /// also used by another system must not be handled by this manager.
+        /// </summary>
+        private void ReleaseAllOccluders()
         {
-            Shader.SetGlobalVectorArray("_WallHidePoints",    _points);
-            Shader.SetGlobalFloatArray ("_WallHideStrengths", _strengths);
-            Shader.SetGlobalFloat      ("_HideSoftness", hideSoftness);
-            Shader.SetGlobalFloat      ("_HideHalftoneCellSize", halftoneCellSize);
+            foreach (KeyValuePair<Renderer, float> kvp in _occluderFades)
+            {
+                if (kvp.Key != null)
+                    kvp.Key.SetPropertyBlock(null);
+            }
+            _occluderFades.Clear();
         }
 
         // ── Fallback material swap ───────────────────────────────────────
@@ -303,8 +379,9 @@ namespace SuperFinalFuse.WallHide
             if (_swappedOriginals.ContainsKey(renderer))
                 return;   // already swapped
 
-            // Native path: the shader reads _WallHidePoints itself.
-            if (renderer.sharedMaterial != null && renderer.sharedMaterial.HasProperty("_WallHidePoints"))
+            // Native path: the shader reads _WallHidePoint from its own
+            // material property block.
+            if (renderer.sharedMaterial != null && renderer.sharedMaterial.HasProperty("_WallHidePoint"))
                 return;
 
             if (fallbackRevealMaterial == null)
@@ -368,6 +445,26 @@ namespace SuperFinalFuse.WallHide
         }
 
         // ── Helpers ──────────────────────────────────────────────────────
+        /// <summary>
+        /// Re-seeds the reusable containers if they were lost. When scripts
+        /// recompile while in Play Mode, Unity restores MonoBehaviour fields
+        /// from a serialized snapshot in which empty collections come back as
+        /// null — even for fields with initializers. Idempotent and cheap;
+        /// called at every lifecycle entry point because Awake does not
+        /// necessarily re-run after a reload.
+        /// </summary>
+        private void EnsureFieldInitializers()
+        {
+            _hitBuffer         ??= new RaycastHit[64];
+            _hiddenRenderers   ??= new List<Renderer>(16);
+            _occluderFades     ??= new Dictionary<Renderer, float>();
+            _finishedFades     ??= new List<Renderer>(8);
+            _fadeUpdates       ??= new List<KeyValuePair<Renderer, float>>(8);
+            _restoreList       ??= new List<Renderer>(8);
+            _swappedOriginals  ??= new Dictionary<Renderer, Material[]>();
+            _propertyBlock     ??= new MaterialPropertyBlock();
+        }
+
         private void CacheTargetComponents()
         {
             if (target == null)
