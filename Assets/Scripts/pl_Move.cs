@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 using SuperFinalFuse.BombThrowing.Mechanisms;
 
 public sealed class pl_Move : MonoBehaviour
@@ -36,7 +37,10 @@ public sealed class pl_Move : MonoBehaviour
     [Min(0.001f)]
     [SerializeField] private float playerHeight = 2f;
     [Min(0f)]
-    [SerializeField] private float groundSnapDistance = 0.2f;
+    [FormerlySerializedAs("groundSnapDistance")]
+    [SerializeField] private float centerGroundSnapDistance = 0.2f;
+    [Min(0f)]
+    [SerializeField] private float auxiliaryGroundSnapDistance = 0.2f;
     [Min(0f)]
     [SerializeField] private float skin = 0.02f;
     [Min(0f)]
@@ -477,41 +481,16 @@ public sealed class pl_Move : MonoBehaviour
 
     private void SnapOnGround()
     {
+        bool wasGrounded = IsGrounded;
         if (TryGetGroundHit(out RaycastHit raycastHit))
         {
-            Behaviour hitCarrier = GetGroundCarrier(raycastHit.collider);
-            groundNormal = raycastHit.normal;
-            float groundHeight = raycastHit.point.y + playerHeight / 2f;
-            float bottomDistance = transform.position.y - groundHeight;
-            bool reachedGround = bottomDistance <= skin;
-            bool canSnapDownSlope = IsGrounded &&
-                                    bottomDistance <= groundSnapDistance;
-
-            if (reachedGround || canSnapDownSlope)
-            {
-                IsGrounded = true;
-                float groundSkin = hitCarrier != null ? 0f : skin;
-                transform.position = new Vector3(
-                    transform.position.x,
-                    groundHeight - groundSkin,
-                    transform.position.z);
-                SetGroundCarrier(hitCarrier, raycastHit.rigidbody);
-            }
-            else
-            {
-                IsGrounded = false;
-                ClearGroundCarrier();
-            }
+            ApplyGroundHit(raycastHit);
         }
-        else if (IsGrounded &&
+        else if (wasGrounded &&
                  TryGetAuxiliaryGroundSupport(
                      out RaycastHit auxiliaryGroundHit))
         {
-            IsGrounded = true;
-            groundNormal = auxiliaryGroundHit.normal;
-            SetGroundCarrier(
-                GetGroundCarrier(auxiliaryGroundHit.collider),
-                auxiliaryGroundHit.rigidbody);
+            ApplyGroundHit(auxiliaryGroundHit);
         }
         else
         {
@@ -519,6 +498,21 @@ public sealed class pl_Move : MonoBehaviour
             groundNormal = Vector3.up;
             ClearGroundCarrier();
         }
+    }
+
+    private void ApplyGroundHit(RaycastHit groundHit)
+    {
+        Behaviour hitCarrier = GetGroundCarrier(groundHit.collider);
+        float groundHeight = groundHit.point.y + playerHeight / 2f;
+        float groundSkin = hitCarrier != null ? 0f : skin;
+
+        IsGrounded = true;
+        groundNormal = groundHit.normal;
+        transform.position = new Vector3(
+            transform.position.x,
+            groundHeight - groundSkin,
+            transform.position.z);
+        SetGroundCarrier(hitCarrier, groundHit.rigidbody);
     }
 
     private void ApplyGroundCarrierMovement()
@@ -559,11 +553,13 @@ public sealed class pl_Move : MonoBehaviour
     private bool TryGetGroundHit(out RaycastHit groundHit)
     {
         Vector3 rayOrigin = GetGroundProbeCenter();
+        float probeDistance =
+            GetGroundProbeDistance(centerGroundSnapDistance);
         int hitCount = Physics.RaycastNonAlloc(
             rayOrigin,
             Vector3.down,
             groundHitBuffer,
-            2000f,
+            probeDistance,
             Physics.AllLayers,
             QueryTriggerInteraction.Ignore);
 
@@ -598,12 +594,15 @@ public sealed class pl_Move : MonoBehaviour
         Vector3 groundProbeCenter = GetGroundProbeCenter();
         float groundProbeRadius =
             GetGroundProbeRadius(playerCollider);
+        float probeDistance =
+            GetGroundProbeDistance(auxiliaryGroundSnapDistance);
 
         if (groundProbeRadius <= InputDeadZone)
         {
             return false;
         }
 
+        bool foundGround = false;
         for (int probeIndex = 0;
              probeIndex < GroundProbeDirections.Length;
              probeIndex++)
@@ -615,9 +614,13 @@ public sealed class pl_Move : MonoBehaviour
                 rayOrigin,
                 Vector3.down,
                 groundHitBuffer,
-                2000f,
+                probeDistance,
                 Physics.AllLayers,
                 QueryTriggerInteraction.Ignore);
+
+            RaycastHit nearestProbeHit = default;
+            bool foundProbeGround = false;
+            float nearestHitDistance = float.PositiveInfinity;
 
             for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
             {
@@ -625,22 +628,27 @@ public sealed class pl_Move : MonoBehaviour
 
                 if (hit.collider == null ||
                     IsPlayerCollider(hit.collider) ||
-                    !IsGroundCollider(hit.collider))
+                    !IsGroundCollider(hit.collider) ||
+                    hit.distance >= nearestHitDistance)
                 {
                     continue;
                 }
 
-                float groundHeight = hit.point.y + playerHeight / 2f;
-                float bottomDistance = transform.position.y - groundHeight;
-                if (bottomDistance <= groundSnapDistance)
-                {
-                    groundHit = hit;
-                    return true;
-                }
+                nearestProbeHit = hit;
+                foundProbeGround = true;
+                nearestHitDistance = hit.distance;
+            }
+
+            if (foundProbeGround &&
+                (!foundGround ||
+                 nearestProbeHit.point.y > groundHit.point.y))
+            {
+                groundHit = nearestProbeHit;
+                foundGround = true;
             }
         }
 
-        return false;
+        return foundGround;
     }
 
     private Vector3 GetGroundProbeCenter()
@@ -663,11 +671,9 @@ public sealed class pl_Move : MonoBehaviour
             Mathf.Max(0f, playerWorldRadius - skin));
     }
 
-    private float GetAuxiliaryGroundSupportDistance()
+    private float GetGroundProbeDistance(float snapDistance)
     {
-        return Mathf.Max(
-            stepOffset + groundSnapDistance + skin + RayOriginOffset,
-            0.1f);
+        return stepOffset + snapDistance + skin + RayOriginOffset;
     }
 
     private void OnDrawGizmosSelected()
@@ -681,11 +687,13 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         Vector3 probeCenter = GetGroundProbeCenter();
-        float supportDistance =
-            GetAuxiliaryGroundSupportDistance();
+        float centerProbeDistance =
+            GetGroundProbeDistance(centerGroundSnapDistance);
+        float auxiliaryProbeDistance =
+            GetGroundProbeDistance(auxiliaryGroundSnapDistance);
 
         Gizmos.color = Color.yellow;
-        DrawGroundProbeGizmo(probeCenter, supportDistance);
+        DrawGroundProbeGizmo(probeCenter, centerProbeDistance);
 
         float probeRadius = GetGroundProbeRadius(capsuleCollider);
         if (probeRadius <= InputDeadZone)
@@ -698,7 +706,7 @@ public sealed class pl_Move : MonoBehaviour
         {
             Vector3 probeOrigin =
                 probeCenter + GroundProbeDirections[i] * probeRadius;
-            DrawGroundProbeGizmo(probeOrigin, supportDistance);
+            DrawGroundProbeGizmo(probeOrigin, auxiliaryProbeDistance);
         }
 
         Gizmos.color = new Color(1f, 0.5f, 0f);
@@ -709,7 +717,7 @@ public sealed class pl_Move : MonoBehaviour
             Vector3 probeOrigin =
                 probeCenter + GroundProbeDirections[i] * probeRadius;
             Vector3 limitPoint =
-                probeOrigin + Vector3.down * supportDistance;
+                probeOrigin + Vector3.down * auxiliaryProbeDistance;
 
             Gizmos.DrawWireSphere(limitPoint, 0.025f);
             if (i == 0)
@@ -862,7 +870,8 @@ public sealed class pl_Move : MonoBehaviour
             decelerationTime <= 0f ||
             maxTurnSpeed < 0f ||
             playerHeight <= 0f ||
-            groundSnapDistance < 0f ||
+            centerGroundSnapDistance < 0f ||
+            auxiliaryGroundSnapDistance < 0f ||
             skin < 0f ||
             skin >= playerHeight / 2f ||
             stepOffset < 0f)
