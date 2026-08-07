@@ -83,6 +83,8 @@ MonoBehaviour:
   officeAirWall: {fileID: 0}
   controlOfficeStairCameraRange: {fileID: 0}
   firstTryCameraRange: {fileID: 0}
+  auxiliaryCamera: {fileID: 0}
+  cameraExtraHoldDuration: 0
   indicatorRenderer: {fileID: 3000000000000000004}
   unavailableColor: {r: 0.95, g: 0.07, b: 0, a: 1}
   readyColor: {r: 0.08, g: 0.8, b: 0.2, a: 1}

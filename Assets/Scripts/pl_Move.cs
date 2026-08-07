@@ -41,6 +41,9 @@ public sealed class pl_Move : MonoBehaviour
     [SerializeField] private float centerGroundSnapDistance = 0.2f;
     [Min(0f)]
     [SerializeField] private float auxiliaryGroundSnapDistance = 0.2f;
+    [Range(0f, 360f)]
+    [Tooltip("World-space Y rotation of the three auxiliary ground probes.")]
+    [SerializeField] private float auxiliaryGroundProbeRotation;
     [Min(0f)]
     [SerializeField] private float skin = 0.02f;
     [Min(0f)]
@@ -321,9 +324,10 @@ public sealed class pl_Move : MonoBehaviour
     {
         Vector3 horizontalVelocity = lastMoveDirection * currentMoveSpeed;
         Vector3 velocity = horizontalVelocity + Vector3.up * verticalVelocity;
+        Vector3 horizontalDisplacement = horizontalVelocity * deltaTime;
 
         float horizontalMovementDistance =
-            horizontalVelocity.magnitude * deltaTime;
+            horizontalDisplacement.magnitude;
         float playerWorldRadius = GetPlayerWorldRadius();
         Vector3 colliderScale = playerCollider.transform.lossyScale;
         float playerWorldHeight = Mathf.Max(
@@ -339,18 +343,14 @@ public sealed class pl_Move : MonoBehaviour
         float wallCastRadius = Mathf.Max(
             playerWorldRadius - skin,
             InputDeadZone);
-        float wallDetectionDistance = horizontalMovementDistance + skin;
-
         if (horizontalMovementDistance > InputDeadZone &&
-            Physics.CapsuleCast(
+            TryGetBlockingWallHit(
                 capsuleCenter + capsuleOffset,
                 capsuleCenter - capsuleOffset,
                 wallCastRadius,
-                horizontalVelocity.normalized,
-                out RaycastHit wallHit,
-                wallDetectionDistance,
-                wallMask.value | movableMask.value,
-                QueryTriggerInteraction.Ignore))
+                horizontalDisplacement,
+                Vector3.zero,
+                out RaycastHit wallHit))
         {
             horizontalVelocity = ProjectOnPlane(
                 horizontalVelocity,
@@ -359,7 +359,7 @@ public sealed class pl_Move : MonoBehaviour
 
             Vector3 slideDisplacement =
                 horizontalVelocity * deltaTime;
-            if (TryGetSlideWallHit(
+            if (TryGetBlockingWallHit(
                     capsuleCenter + capsuleOffset,
                     capsuleCenter - capsuleOffset,
                     wallCastRadius,
@@ -390,23 +390,94 @@ public sealed class pl_Move : MonoBehaviour
         transform.position += velocity * deltaTime;
     }
 
-    private bool TryGetSlideWallHit(
+    private bool TryGetBlockingWallHit(
         Vector3 capsuleTop,
         Vector3 capsuleBottom,
         float capsuleRadius,
-        Vector3 slideDisplacement,
+        Vector3 displacement,
         Vector3 initialWallNormal,
         out RaycastHit wallHit)
     {
         wallHit = default;
 
-        float slideDistance = slideDisplacement.magnitude;
-        if (slideDistance <= InputDeadZone)
+        if (!TryGetNearestWallHit(
+                capsuleTop,
+                capsuleBottom,
+                capsuleRadius,
+                displacement,
+                initialWallNormal,
+                false,
+                out RaycastHit fullBodyHit))
         {
             return false;
         }
 
-        Vector3 slideDirection = slideDisplacement / slideDistance;
+        if (!IsGrounded ||
+            stepOffset <= InputDeadZone ||
+            !HasStableAuxiliaryGroundSupportAt(
+                transform.position + displacement))
+        {
+            wallHit = fullBodyHit;
+            return true;
+        }
+
+        bool foundNonGroundHit = TryGetNearestWallHit(
+            capsuleTop,
+            capsuleBottom,
+            capsuleRadius,
+            displacement,
+            initialWallNormal,
+            true,
+            out RaycastHit nonGroundHit);
+
+        Vector3 upperCapsuleBottom = Vector3.MoveTowards(
+            capsuleBottom,
+            capsuleTop,
+            stepOffset);
+        bool foundUpperBodyHit = TryGetNearestWallHit(
+            capsuleTop,
+            upperCapsuleBottom,
+            capsuleRadius,
+            displacement,
+            initialWallNormal,
+            false,
+            out RaycastHit upperBodyHit);
+
+        if (!foundNonGroundHit && !foundUpperBodyHit)
+        {
+            return false;
+        }
+
+        if (!foundUpperBodyHit ||
+            (foundNonGroundHit &&
+             nonGroundHit.distance <= upperBodyHit.distance))
+        {
+            wallHit = nonGroundHit;
+            return true;
+        }
+
+        wallHit = upperBodyHit;
+        return true;
+    }
+
+    private bool TryGetNearestWallHit(
+        Vector3 capsuleTop,
+        Vector3 capsuleBottom,
+        float capsuleRadius,
+        Vector3 displacement,
+        Vector3 initialWallNormal,
+        bool ignoreGroundColliders,
+        out RaycastHit wallHit)
+    {
+        wallHit = default;
+
+        float movementDistance = displacement.magnitude;
+        if (movementDistance <= InputDeadZone)
+        {
+            return false;
+        }
+
+        Vector3 movementDirection = displacement / movementDistance;
         Vector3 initialHorizontalNormal = Vector3.ProjectOnPlane(
             initialWallNormal,
             Vector3.up);
@@ -419,9 +490,9 @@ public sealed class pl_Move : MonoBehaviour
             capsuleTop,
             capsuleBottom,
             capsuleRadius,
-            slideDirection,
+            movementDirection,
             wallHitBuffer,
-            slideDistance + skin,
+            movementDistance + skin,
             wallMask.value | movableMask.value,
             QueryTriggerInteraction.Ignore);
         float nearestHitDistance = float.PositiveInfinity;
@@ -433,9 +504,12 @@ public sealed class pl_Move : MonoBehaviour
             Vector3 hitHorizontalNormal = Vector3.ProjectOnPlane(
                 hit.normal,
                 Vector3.up);
+            bool hasHorizontalNormal =
+                hitHorizontalNormal.sqrMagnitude >
+                InputDeadZone * InputDeadZone;
             bool isInitialWallSurface =
                 initialHorizontalNormal.sqrMagnitude > InputDeadZone &&
-                hitHorizontalNormal.sqrMagnitude > InputDeadZone &&
+                hasHorizontalNormal &&
                 Vector3.Dot(
                     initialHorizontalNormal,
                     hitHorizontalNormal.normalized) >=
@@ -443,8 +517,13 @@ public sealed class pl_Move : MonoBehaviour
 
             if (hit.collider == null ||
                 IsPlayerCollider(hit.collider) ||
+                !hasHorizontalNormal ||
                 isInitialWallSurface ||
-                Vector3.Dot(hit.normal, slideDirection) >= -InputDeadZone ||
+                (ignoreGroundColliders &&
+                 IsGroundCollider(hit.collider)) ||
+                Vector3.Dot(
+                    hitHorizontalNormal.normalized,
+                    movementDirection) >= -InputDeadZone ||
                 hit.distance >= nearestHitDistance)
             {
                 continue;
@@ -456,6 +535,15 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         return foundWall;
+    }
+
+    private bool HasStableAuxiliaryGroundSupportAt(
+        Vector3 playerPosition)
+    {
+        return TryGetAuxiliaryGroundSupport(
+            GetGroundProbeCenter(playerPosition),
+            true,
+            out _);
     }
 
     private float GetPlayerWorldRadius()
@@ -555,43 +643,28 @@ public sealed class pl_Move : MonoBehaviour
         Vector3 rayOrigin = GetGroundProbeCenter();
         float probeDistance =
             GetGroundProbeDistance(centerGroundSnapDistance);
-        int hitCount = Physics.RaycastNonAlloc(
-            rayOrigin,
-            Vector3.down,
-            groundHitBuffer,
-            probeDistance,
-            Physics.AllLayers,
-            QueryTriggerInteraction.Ignore);
-
-        groundHit = default;
-        bool foundGround = false;
-        float nearestHitDistance = float.PositiveInfinity;
-
-        for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
-        {
-            RaycastHit hit = groundHitBuffer[hitIndex];
-
-            if (hit.collider == null ||
-                IsPlayerCollider(hit.collider) ||
-                !IsGroundCollider(hit.collider) ||
-                hit.distance >= nearestHitDistance)
-            {
-                continue;
-            }
-
-            groundHit = hit;
-            foundGround = true;
-            nearestHitDistance = hit.distance;
-        }
-
-        return foundGround;
+        return TryGetNearestProbeSurface(
+                   rayOrigin,
+                   probeDistance,
+                   out groundHit) &&
+               IsGroundCollider(groundHit.collider);
     }
 
     private bool TryGetAuxiliaryGroundSupport(
         out RaycastHit groundHit)
     {
+        return TryGetAuxiliaryGroundSupport(
+            GetGroundProbeCenter(),
+            false,
+            out groundHit);
+    }
+
+    private bool TryGetAuxiliaryGroundSupport(
+        Vector3 groundProbeCenter,
+        bool requireAllProbes,
+        out RaycastHit groundHit)
+    {
         groundHit = default;
-        Vector3 groundProbeCenter = GetGroundProbeCenter();
         float groundProbeRadius =
             GetGroundProbeRadius(playerCollider);
         float probeDistance =
@@ -603,62 +676,93 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         bool foundGround = false;
+        int validGroundProbeCount = 0;
         for (int probeIndex = 0;
              probeIndex < GroundProbeDirections.Length;
              probeIndex++)
         {
             Vector3 rayOrigin =
                 groundProbeCenter +
-                GroundProbeDirections[probeIndex] * groundProbeRadius;
-            int hitCount = Physics.RaycastNonAlloc(
-                rayOrigin,
-                Vector3.down,
-                groundHitBuffer,
-                probeDistance,
-                Physics.AllLayers,
-                QueryTriggerInteraction.Ignore);
+                GetGroundProbeDirection(probeIndex) * groundProbeRadius;
+            bool foundProbeGround = TryGetNearestProbeSurface(
+                                        rayOrigin,
+                                        probeDistance,
+                                        out RaycastHit nearestProbeHit) &&
+                                    IsGroundCollider(
+                                        nearestProbeHit.collider);
 
-            RaycastHit nearestProbeHit = default;
-            bool foundProbeGround = false;
-            float nearestHitDistance = float.PositiveInfinity;
-
-            for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
+            if (!foundProbeGround)
             {
-                RaycastHit hit = groundHitBuffer[hitIndex];
-
-                if (hit.collider == null ||
-                    IsPlayerCollider(hit.collider) ||
-                    !IsGroundCollider(hit.collider) ||
-                    hit.distance >= nearestHitDistance)
+                if (requireAllProbes)
                 {
-                    continue;
+                    groundHit = default;
+                    return false;
                 }
 
-                nearestProbeHit = hit;
-                foundProbeGround = true;
-                nearestHitDistance = hit.distance;
+                continue;
             }
 
-            if (foundProbeGround &&
-                (!foundGround ||
-                 nearestProbeHit.point.y > groundHit.point.y))
+            validGroundProbeCount++;
+            if (!foundGround ||
+                nearestProbeHit.point.y > groundHit.point.y)
             {
                 groundHit = nearestProbeHit;
                 foundGround = true;
             }
         }
 
-        return foundGround;
+        return foundGround &&
+               (!requireAllProbes ||
+                validGroundProbeCount == GroundProbeDirections.Length);
+    }
+
+    private bool TryGetNearestProbeSurface(
+        Vector3 rayOrigin,
+        float probeDistance,
+        out RaycastHit nearestHit)
+    {
+        int hitCount = Physics.RaycastNonAlloc(
+            rayOrigin,
+            Vector3.down,
+            groundHitBuffer,
+            probeDistance,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Ignore);
+
+        nearestHit = default;
+        float nearestHitDistance = float.PositiveInfinity;
+
+        for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
+        {
+            RaycastHit hit = groundHitBuffer[hitIndex];
+
+            if (hit.collider == null ||
+                IsPlayerCollider(hit.collider) ||
+                hit.distance >= nearestHitDistance)
+            {
+                continue;
+            }
+
+            nearestHit = hit;
+            nearestHitDistance = hit.distance;
+        }
+
+        return nearestHit.collider != null;
     }
 
     private Vector3 GetGroundProbeCenter()
     {
+        return GetGroundProbeCenter(transform.position);
+    }
+
+    private Vector3 GetGroundProbeCenter(Vector3 playerPosition)
+    {
         float currentGroundHeight =
-            transform.position.y - playerHeight / 2f + skin;
+            playerPosition.y - playerHeight / 2f + skin;
         return new Vector3(
-            transform.position.x,
+            playerPosition.x,
             currentGroundHeight + stepOffset + RayOriginOffset,
-            transform.position.z);
+            playerPosition.z);
     }
 
     private float GetGroundProbeRadius(
@@ -674,6 +778,14 @@ public sealed class pl_Move : MonoBehaviour
     private float GetGroundProbeDistance(float snapDistance)
     {
         return stepOffset + snapDistance + skin + RayOriginOffset;
+    }
+
+    private Vector3 GetGroundProbeDirection(int probeIndex)
+    {
+        return Quaternion.AngleAxis(
+                   auxiliaryGroundProbeRotation,
+                   Vector3.up) *
+               GroundProbeDirections[probeIndex];
     }
 
     private void OnDrawGizmosSelected()
@@ -705,7 +817,7 @@ public sealed class pl_Move : MonoBehaviour
         for (int i = 0; i < GroundProbeDirections.Length; i++)
         {
             Vector3 probeOrigin =
-                probeCenter + GroundProbeDirections[i] * probeRadius;
+                probeCenter + GetGroundProbeDirection(i) * probeRadius;
             DrawGroundProbeGizmo(probeOrigin, auxiliaryProbeDistance);
         }
 
@@ -715,7 +827,7 @@ public sealed class pl_Move : MonoBehaviour
         for (int i = 0; i < GroundProbeDirections.Length; i++)
         {
             Vector3 probeOrigin =
-                probeCenter + GroundProbeDirections[i] * probeRadius;
+                probeCenter + GetGroundProbeDirection(i) * probeRadius;
             Vector3 limitPoint =
                 probeOrigin + Vector3.down * auxiliaryProbeDistance;
 

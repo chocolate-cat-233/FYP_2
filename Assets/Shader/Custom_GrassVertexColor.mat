@@ -33,12 +33,18 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _AmbientStrength: 0.55
     - _BlendSoftness: 0.15
+    - _ShadowSoftness: 0.08
+    - _ShadowThreshold: 0.35
     - _WindFrequency: 1.5
     - _WindSpeed: 1
     - _WindStrength: 0.35
     m_Colors:
+    - _AmbientColor: {r: 0.45, g: 0.54999995, b: 0.41999996, a: 1}
     - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _GrassColor: {r: 0.34999996, g: 0.6, b: 0.24999997, a: 1}
+    - _GroundColor: {r: 0.45, g: 0.33999997, b: 0.21999997, a: 1}
     - _WindDirection: {r: 1, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

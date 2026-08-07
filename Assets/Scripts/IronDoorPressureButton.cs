@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.Cinemachine;
 using UnityEngine;
 
 namespace SuperFinalFuse.IronDoorPuzzle
@@ -21,6 +22,11 @@ namespace SuperFinalFuse.IronDoorPuzzle
         [SerializeField] private GameObject officeAirWall;
         [SerializeField] private CameraRange controlOfficeStairCameraRange;
         [SerializeField] private CameraRange firstTryCameraRange;
+
+        [Header("Cutaway Camera")]
+        [SerializeField] private CinemachineCamera auxiliaryCamera;
+        [Min(0f)]
+        [SerializeField] private float cameraExtraHoldDuration;
 
         [Header("Visual")]
         [SerializeField] private Renderer indicatorRenderer;
@@ -60,7 +66,10 @@ namespace SuperFinalFuse.IronDoorPuzzle
         private Vector3 floorAnimationTargetPosition;
         private RigidbodyHierarchyCarrier rigidbodyCarrier;
         private float animationElapsed;
+        private float cameraSequenceElapsed;
         private bool animationPlaying;
+        private bool cameraSequencePlaying;
+        private bool auxiliaryCameraShouldBeActive;
         private bool releaseCarriedBodiesOnNextFixedUpdate;
         private bool activated;
 
@@ -90,11 +99,14 @@ namespace SuperFinalFuse.IronDoorPuzzle
                 rigidbodyCarrier =
                     movingFloor.GetComponent<RigidbodyHierarchyCarrier>();
             }
+
+            SetAuxiliaryCameraDesiredState(false);
         }
 
         private void OnEnable()
         {
             SubscribeToTriggers();
+            ApplyAuxiliaryCameraState();
             RefreshState();
         }
 
@@ -112,9 +124,15 @@ namespace SuperFinalFuse.IronDoorPuzzle
                 rigidbodyCarrier?.EndCarry();
             }
 
+            float deltaTime = Mathf.Max(0f, Time.fixedDeltaTime);
             if (animationPlaying)
             {
-                UpdateActivationAnimation(Time.fixedDeltaTime);
+                UpdateActivationAnimation(deltaTime);
+            }
+
+            if (cameraSequencePlaying)
+            {
+                UpdateCameraSequence(deltaTime);
             }
         }
 
@@ -127,6 +145,11 @@ namespace SuperFinalFuse.IronDoorPuzzle
         {
             UnsubscribeFromTriggers();
             playersOnButton.Clear();
+
+            if (auxiliaryCamera != null)
+            {
+                auxiliaryCamera.enabled = false;
+            }
         }
 
         private void OnTriggerEnter(Collider other)
@@ -232,6 +255,7 @@ namespace SuperFinalFuse.IronDoorPuzzle
             }
 
             BeginActivationAnimation();
+            BeginCameraSequence();
 
             if (controlOfficeStairCameraRange != null)
             {
@@ -271,6 +295,13 @@ namespace SuperFinalFuse.IronDoorPuzzle
             ApplyAnimationPose(0f, 0f);
         }
 
+        private void BeginCameraSequence()
+        {
+            cameraSequenceElapsed = 0f;
+            SetAuxiliaryCameraDesiredState(false);
+            cameraSequencePlaying = auxiliaryCamera != null;
+        }
+
         private void UpdateActivationAnimation(float deltaTime)
         {
             if (door1 == null || door2 == null || movingFloor == null)
@@ -294,6 +325,51 @@ namespace SuperFinalFuse.IronDoorPuzzle
             {
                 animationPlaying = false;
                 releaseCarriedBodiesOnNextFixedUpdate = true;
+            }
+        }
+
+        private void UpdateCameraSequence(float deltaTime)
+        {
+            if (auxiliaryCamera == null)
+            {
+                cameraSequencePlaying = false;
+                auxiliaryCameraShouldBeActive = false;
+                return;
+            }
+
+            cameraSequenceElapsed += Mathf.Max(0f, deltaTime);
+            float safeFloorDuration = GetSafeDuration(floorMovementDuration);
+            float switchTime = safeFloorDuration / 3f;
+            float returnTime = safeFloorDuration +
+                               GetSafeNonNegativeDuration(
+                                   cameraExtraHoldDuration);
+
+            if (!auxiliaryCameraShouldBeActive &&
+                cameraSequenceElapsed >= switchTime)
+            {
+                SetAuxiliaryCameraDesiredState(true);
+            }
+
+            if (cameraSequenceElapsed >= returnTime)
+            {
+                cameraSequenceElapsed = returnTime;
+                cameraSequencePlaying = false;
+                SetAuxiliaryCameraDesiredState(false);
+            }
+        }
+
+        private void SetAuxiliaryCameraDesiredState(bool shouldBeActive)
+        {
+            auxiliaryCameraShouldBeActive = shouldBeActive;
+            ApplyAuxiliaryCameraState();
+        }
+
+        private void ApplyAuxiliaryCameraState()
+        {
+            if (auxiliaryCamera != null)
+            {
+                auxiliaryCamera.enabled =
+                    auxiliaryCameraShouldBeActive && isActiveAndEnabled;
             }
         }
 
@@ -396,9 +472,11 @@ namespace SuperFinalFuse.IronDoorPuzzle
                 officeAirWall == null ||
                 controlOfficeStairCameraRange == null ||
                 firstTryCameraRange == null || indicatorRenderer == null ||
+                auxiliaryCamera == null ||
                 rigidbodyCarrier == null ||
                 !IsValidDuration(doorRotationDuration) ||
                 !IsValidDuration(floorMovementDuration) ||
+                !IsNonNegativeFinite(cameraExtraHoldDuration) ||
                 animationCurve == null)
             {
                 Debug.LogWarning(
@@ -420,8 +498,21 @@ namespace SuperFinalFuse.IronDoorPuzzle
             return IsValidDuration(duration) ? duration : 0.0001f;
         }
 
+        private static bool IsNonNegativeFinite(float duration)
+        {
+            return duration >= 0f &&
+                   !float.IsNaN(duration) &&
+                   !float.IsInfinity(duration);
+        }
+
+        private static float GetSafeNonNegativeDuration(float duration)
+        {
+            return IsNonNegativeFinite(duration) ? duration : 0f;
+        }
+
         private void OnDestroy()
         {
+            SetAuxiliaryCameraDesiredState(false);
             rigidbodyCarrier?.EndCarry();
         }
     }
