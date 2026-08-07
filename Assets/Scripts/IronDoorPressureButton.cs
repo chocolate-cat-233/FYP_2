@@ -18,6 +18,7 @@ namespace SuperFinalFuse.IronDoorPuzzle
         [SerializeField] private Transform door1;
         [SerializeField] private Transform door2;
         [SerializeField] private Transform movingFloor;
+        [SerializeField] private GameObject officeAirWall;
         [SerializeField] private CameraRange controlOfficeStairCameraRange;
         [SerializeField] private CameraRange firstTryCameraRange;
 
@@ -35,6 +36,14 @@ namespace SuperFinalFuse.IronDoorPuzzle
         [SerializeField] private float controlOfficeStairRotationY = 45f;
         [SerializeField] private float firstTryRotationY;
 
+        [Header("Animation")]
+        [Min(0.01f)]
+        [SerializeField] private float doorRotationDuration = 1f;
+        [Min(0.01f)]
+        [SerializeField] private float floorMovementDuration = 2f;
+        [SerializeField] private AnimationCurve animationCurve =
+            AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+
         private readonly Dictionary<Transform, HashSet<Collider>> playersOnButton =
             new Dictionary<Transform, HashSet<Collider>>();
         private readonly List<Transform> stalePlayers =
@@ -43,6 +52,16 @@ namespace SuperFinalFuse.IronDoorPuzzle
         private MaterialPropertyBlock indicatorProperties;
         private Quaternion door1InitialLocalRotation;
         private Quaternion door2InitialLocalRotation;
+        private Quaternion door1AnimationStartRotation;
+        private Quaternion door2AnimationStartRotation;
+        private Quaternion door1AnimationTargetRotation;
+        private Quaternion door2AnimationTargetRotation;
+        private Vector3 floorAnimationStartPosition;
+        private Vector3 floorAnimationTargetPosition;
+        private RigidbodyHierarchyCarrier rigidbodyCarrier;
+        private float animationElapsed;
+        private bool animationPlaying;
+        private bool releaseCarriedBodiesOnNextFixedUpdate;
         private bool activated;
 
         public bool IsActivated => activated;
@@ -65,6 +84,12 @@ namespace SuperFinalFuse.IronDoorPuzzle
             {
                 door2InitialLocalRotation = door2.localRotation;
             }
+
+            if (movingFloor != null)
+            {
+                rigidbodyCarrier =
+                    movingFloor.GetComponent<RigidbodyHierarchyCarrier>();
+            }
         }
 
         private void OnEnable()
@@ -77,6 +102,20 @@ namespace SuperFinalFuse.IronDoorPuzzle
         {
             WarnAboutMissingReferences();
             RefreshState();
+        }
+
+        private void FixedUpdate()
+        {
+            if (releaseCarriedBodiesOnNextFixedUpdate)
+            {
+                releaseCarriedBodiesOnNextFixedUpdate = false;
+                rigidbodyCarrier?.EndCarry();
+            }
+
+            if (animationPlaying)
+            {
+                UpdateActivationAnimation(Time.fixedDeltaTime);
+            }
         }
 
         private void LateUpdate()
@@ -187,14 +226,12 @@ namespace SuperFinalFuse.IronDoorPuzzle
             }
 
             activated = true;
-            Quaternion localZRotation =
-                Quaternion.Euler(0f, 0f, doorLocalZDelta);
-            door1.localRotation = door1InitialLocalRotation * localZRotation;
-            door2.localRotation = door2InitialLocalRotation * localZRotation;
+            if (officeAirWall != null)
+            {
+                officeAirWall.SetActive(true);
+            }
 
-            Vector3 floorPosition = movingFloor.localPosition;
-            floorPosition.z = floorTargetLocalZ;
-            movingFloor.localPosition = floorPosition;
+            BeginActivationAnimation();
 
             if (controlOfficeStairCameraRange != null)
             {
@@ -209,6 +246,92 @@ namespace SuperFinalFuse.IronDoorPuzzle
 
             playersOnButton.Clear();
             SetIndicatorColor(readyColor);
+        }
+
+        private void BeginActivationAnimation()
+        {
+            Quaternion localZRotation =
+                Quaternion.Euler(0f, 0f, doorLocalZDelta);
+
+            door1AnimationStartRotation = door1.localRotation;
+            door2AnimationStartRotation = door2.localRotation;
+            door1AnimationTargetRotation =
+                door1InitialLocalRotation * localZRotation;
+            door2AnimationTargetRotation =
+                door2InitialLocalRotation * localZRotation;
+
+            floorAnimationStartPosition = movingFloor.localPosition;
+            floorAnimationTargetPosition = floorAnimationStartPosition;
+            floorAnimationTargetPosition.z = floorTargetLocalZ;
+
+            animationElapsed = 0f;
+            releaseCarriedBodiesOnNextFixedUpdate = false;
+            rigidbodyCarrier?.BeginCarry();
+            animationPlaying = true;
+            ApplyAnimationPose(0f, 0f);
+        }
+
+        private void UpdateActivationAnimation(float deltaTime)
+        {
+            if (door1 == null || door2 == null || movingFloor == null)
+            {
+                animationPlaying = false;
+                rigidbodyCarrier?.EndCarry();
+                return;
+            }
+
+            animationElapsed += Mathf.Max(0f, deltaTime);
+            float safeDoorDuration = GetSafeDuration(doorRotationDuration);
+            float safeFloorDuration = GetSafeDuration(floorMovementDuration);
+            float doorProgress = Mathf.Clamp01(
+                animationElapsed / safeDoorDuration);
+            float floorProgress = Mathf.Clamp01(
+                animationElapsed / safeFloorDuration);
+
+            ApplyAnimationPose(doorProgress, floorProgress);
+
+            if (doorProgress >= 1f && floorProgress >= 1f)
+            {
+                animationPlaying = false;
+                releaseCarriedBodiesOnNextFixedUpdate = true;
+            }
+        }
+
+        private void ApplyAnimationPose(
+            float doorProgress,
+            float floorProgress)
+        {
+            float curvedDoorProgress = doorProgress >= 1f
+                ? 1f
+                : EvaluateAnimationCurve(doorProgress);
+            float curvedFloorProgress = floorProgress >= 1f
+                ? 1f
+                : EvaluateAnimationCurve(floorProgress);
+
+            rigidbodyCarrier?.PrepareCarryStep();
+
+            door1.localRotation = Quaternion.SlerpUnclamped(
+                door1AnimationStartRotation,
+                door1AnimationTargetRotation,
+                curvedDoorProgress);
+            door2.localRotation = Quaternion.SlerpUnclamped(
+                door2AnimationStartRotation,
+                door2AnimationTargetRotation,
+                curvedDoorProgress);
+            movingFloor.localPosition = Vector3.LerpUnclamped(
+                floorAnimationStartPosition,
+                floorAnimationTargetPosition,
+                curvedFloorProgress);
+
+            rigidbodyCarrier?.ApplyCarryStep();
+        }
+
+        private float EvaluateAnimationCurve(float progress)
+        {
+            float clampedProgress = Mathf.Clamp01(progress);
+            return animationCurve != null
+                ? Mathf.Clamp01(animationCurve.Evaluate(clampedProgress))
+                : clampedProgress;
         }
 
         private Transform GetPlayerRoot(Collider other)
@@ -270,14 +393,36 @@ namespace SuperFinalFuse.IronDoorPuzzle
         {
             if (firstDoorTrigger == null || secondDoorTrigger == null ||
                 door1 == null || door2 == null || movingFloor == null ||
+                officeAirWall == null ||
                 controlOfficeStairCameraRange == null ||
-                firstTryCameraRange == null || indicatorRenderer == null)
+                firstTryCameraRange == null || indicatorRenderer == null ||
+                rigidbodyCarrier == null ||
+                !IsValidDuration(doorRotationDuration) ||
+                !IsValidDuration(floorMovementDuration) ||
+                animationCurve == null)
             {
                 Debug.LogWarning(
                     $"{nameof(IronDoorPressureButton)} on '{name}' has " +
-                    "missing puzzle references.",
+                    "missing puzzle references or invalid animation settings.",
                     this);
             }
+        }
+
+        private static bool IsValidDuration(float duration)
+        {
+            return duration > 0f &&
+                   !float.IsNaN(duration) &&
+                   !float.IsInfinity(duration);
+        }
+
+        private static float GetSafeDuration(float duration)
+        {
+            return IsValidDuration(duration) ? duration : 0.0001f;
+        }
+
+        private void OnDestroy()
+        {
+            rigidbodyCarrier?.EndCarry();
         }
     }
 }
