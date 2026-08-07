@@ -66,15 +66,13 @@ namespace SuperFinalFuse.BombThrowing
                 boxStyle.normal.textColor = Color.white;
             }
 
-            string keyboardState = Keyboard.current == null
-                ? "NO KEYBOARD"
-                : $"Q={Keyboard.current.qKey.isPressed}";
+            string aimState = $"BombAim={thrower.IsAimInputHeld}";
             string text =
                 "BOMB DIAGNOSTICS  [F8 dump] [F9 force unlock]\n" +
                 $"thrower enabled={thrower.enabled}, active={thrower.gameObject.activeInHierarchy}\n" +
                 $"canThrow={thrower.CanThrow}, inputBlocked={thrower.IsInputBlocked}\n" +
                 $"lockId={thrower.ActiveBombInstanceId}, age={thrower.CurrentLockAge:0.00}s\n" +
-                $"{keyboardState}, focus={Application.isFocused}\n" +
+                $"{aimState}, focus={Application.isFocused}\n" +
                 $"last: {thrower.LastDiagnosticEvent}";
 
             GUI.Box(new Rect(10f, 10f, 610f, 125f), text, boxStyle);
