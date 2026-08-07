@@ -12405,6 +12405,7 @@ Transform:
   - {fileID: 12566549}
   - {fileID: 445771493}
   - {fileID: 1092634029}
+  - {fileID: 901018796}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &278565053
@@ -14250,7 +14251,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 00b6176a5df6b9d4b82043aa0e807410, type: 2}
+  - {fileID: 2100000, guid: c22777d6e868e4f2fb421913386b154e, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -36430,11 +36431,11 @@ Transform:
   m_GameObject: {fileID: 901018795}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -10.75, y: 2, z: -14.5}
+  m_LocalPosition: {x: 1.25, y: 0, z: -16}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 2110596419}
+  m_Father: {fileID: 276171818}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!64 &901018797
 MeshCollider:
@@ -36473,7 +36474,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 901018795}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
@@ -84508,7 +84509,6 @@ Transform:
   - {fileID: 1019317134}
   - {fileID: 1455783974}
   - {fileID: 327774156}
-  - {fileID: 901018796}
   - {fileID: 824151182}
   - {fileID: 186769861}
   - {fileID: 1680225015}
