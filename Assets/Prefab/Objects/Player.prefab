@@ -415,7 +415,6 @@ MonoBehaviour:
   angledThrowDegrees: 15.8
   fallbackThrowHeight: 3
   useCameraDirection: 0
-  trajectoryHoldDuration: 0.3
   maximumThrowLockDuration: 3
 --- !u!114 &1768237869101731269
 MonoBehaviour:

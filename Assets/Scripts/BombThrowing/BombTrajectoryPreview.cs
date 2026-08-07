@@ -22,6 +22,8 @@ namespace SuperFinalFuse.BombThrowing
         [SerializeField] private float dashWorldLength = 0.3f;
         [SerializeField] private Color safeColor = Color.white;
         [SerializeField] private Color dangerousColor = Color.red;
+        [SerializeField] private Color preparingColor =
+            new Color(1f, 0.75f, 0f, 1f);
         [SerializeField] private Color outlineColor =
             new Color(0f, 0f, 0f, 0.9f);
         [Range(1f, 4f)]
@@ -71,12 +73,16 @@ namespace SuperFinalFuse.BombThrowing
             outlineLine.enabled = points.Count > 1;
             outlineLine.positionCount = points.Count;
             outlineLine.SetPositions(points.ToArray());
-            Color color = IsDangerous ? dangerousColor : safeColor;
+            float preparation = thrower.ThrowPreparationProgress;
+            Color readyColor = IsDangerous ? dangerousColor : safeColor;
+            Color color = preparation >= 0.999f
+                ? readyColor
+                : Color.Lerp(preparingColor, safeColor, preparation);
             line.startColor = color;
             line.endColor = color;
             if (lineMaterial != null)
             {
-                lineMaterial.color = color;
+                lineMaterial.color = Color.white;
                 float length = CalculateLineLength();
                 lineMaterial.mainTextureScale = new Vector2(
                     Mathf.Max(1f, length / dashWorldLength),
