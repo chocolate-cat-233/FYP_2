@@ -42,9 +42,6 @@ namespace SuperFinalFuse.BombThrowing
         [Tooltip("Off: throw toward the player's current facing direction. " +
                  "On: throw toward the camera's horizontal forward direction.")]
         [SerializeField] private bool useCameraDirection;
-        [Min(0f)]
-        [Tooltip("Hold the throw key for this long before the trajectory appears.")]
-        [SerializeField] private float trajectoryHoldDuration = 0.3f;
         [Min(1f)]
         [Tooltip("Failsafe: the throw lock is released after this many seconds " +
                  "even if a projectile completion callback is lost.")]
@@ -59,13 +56,15 @@ namespace SuperFinalFuse.BombThrowing
         private string lastDiagnosticEvent = "Not initialized";
         private int throwAttemptCount;
         private int successfulThrowCount;
-        private float throwKeyPressedTime;
-        private bool throwKeyConsumed;
 
         public bool CanThrow => !inputBlocked && activeBombInstanceId == 0;
         public bool IsInputBlocked => inputBlocked;
         public bool IsAimInputHeld =>
             inputManager != null && inputManager.BombAimHeld;
+        public float ThrowPreparationProgress => CanThrow
+            ? 1f
+            : Mathf.Clamp01(CurrentLockAge /
+                Mathf.Max(0.01f, maximumThrowLockDuration));
         public int ActiveBombInstanceId => activeBombInstanceId;
         public float CurrentLockAge => activeBombInstanceId == 0
             ? 0f
@@ -96,19 +95,12 @@ namespace SuperFinalFuse.BombThrowing
             bool confirmPressed =
                 inputManager.BombThrowPressedThisFrame;
 
-            if (inputManager.BombAimPressedThisFrame)
-            {
-                throwKeyPressedTime = Time.unscaledTime;
-                throwKeyConsumed = false;
-            }
-
             // Left click always remains a valid immediate throw. Holding the
             // aim action only adds the optional trajectory preview.
-            if (confirmPressed && !throwKeyConsumed)
+            if (confirmPressed)
             {
-                throwKeyConsumed = TryThrow();
+                TryThrow();
                 trajectoryPreview?.Hide();
-                return;
             }
 
             if (!inputManager.BombAimHeld)
@@ -117,21 +109,11 @@ namespace SuperFinalFuse.BombThrowing
                 return;
             }
 
-            if (throwKeyConsumed || !CanThrow ||
-                Time.unscaledTime - throwKeyPressedTime <
-                    trajectoryHoldDuration)
-            {
-                trajectoryPreview?.Hide();
-                return;
-            }
-
             trajectoryPreview?.Show(this);
         }
 
         private void CancelTrajectoryAim()
         {
-            throwKeyPressedTime = 0f;
-            throwKeyConsumed = false;
             trajectoryPreview?.Hide();
         }
 
@@ -223,7 +205,7 @@ namespace SuperFinalFuse.BombThrowing
                 ? throwOrigin.position
                 : transform.position + Vector3.up * fallbackThrowHeight;
             velocity = CalculateLaunchVelocity(GetHorizontalThrowDirection());
-            return prefab != null && CanThrow;
+            return prefab != null && !inputBlocked;
         }
 
         private void HandleBombCompleted(BombProjectile bomb)
