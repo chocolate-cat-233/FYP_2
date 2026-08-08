@@ -400,25 +400,16 @@ public sealed class pl_Move : MonoBehaviour
     {
         wallHit = default;
 
-        if (!TryGetNearestWallHit(
+        if (!IsGrounded || stepOffset <= InputDeadZone)
+        {
+            return TryGetNearestWallHit(
                 capsuleTop,
                 capsuleBottom,
                 capsuleRadius,
                 displacement,
                 initialWallNormal,
                 false,
-                out RaycastHit fullBodyHit))
-        {
-            return false;
-        }
-
-        if (!IsGrounded ||
-            stepOffset <= InputDeadZone ||
-            !HasStableAuxiliaryGroundSupportAt(
-                transform.position + displacement))
-        {
-            wallHit = fullBodyHit;
-            return true;
+                out wallHit);
         }
 
         bool foundNonGroundHit = TryGetNearestWallHit(
@@ -481,7 +472,8 @@ public sealed class pl_Move : MonoBehaviour
         Vector3 initialHorizontalNormal = Vector3.ProjectOnPlane(
             initialWallNormal,
             Vector3.up);
-        if (initialHorizontalNormal.sqrMagnitude > InputDeadZone)
+        if (initialHorizontalNormal.sqrMagnitude >
+            InputDeadZone * InputDeadZone)
         {
             initialHorizontalNormal.Normalize();
         }
@@ -508,7 +500,8 @@ public sealed class pl_Move : MonoBehaviour
                 hitHorizontalNormal.sqrMagnitude >
                 InputDeadZone * InputDeadZone;
             bool isInitialWallSurface =
-                initialHorizontalNormal.sqrMagnitude > InputDeadZone &&
+                initialHorizontalNormal.sqrMagnitude >
+                InputDeadZone * InputDeadZone &&
                 hasHorizontalNormal &&
                 Vector3.Dot(
                     initialHorizontalNormal,
@@ -535,15 +528,6 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         return foundWall;
-    }
-
-    private bool HasStableAuxiliaryGroundSupportAt(
-        Vector3 playerPosition)
-    {
-        return TryGetAuxiliaryGroundSupport(
-            GetGroundProbeCenter(playerPosition),
-            true,
-            out _);
     }
 
     private float GetPlayerWorldRadius()
@@ -643,28 +627,43 @@ public sealed class pl_Move : MonoBehaviour
         Vector3 rayOrigin = GetGroundProbeCenter();
         float probeDistance =
             GetGroundProbeDistance(centerGroundSnapDistance);
-        return TryGetNearestProbeSurface(
-                   rayOrigin,
-                   probeDistance,
-                   out groundHit) &&
-               IsGroundCollider(groundHit.collider);
+        int hitCount = Physics.RaycastNonAlloc(
+            rayOrigin,
+            Vector3.down,
+            groundHitBuffer,
+            probeDistance,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Ignore);
+
+        groundHit = default;
+        bool foundGround = false;
+        float nearestHitDistance = float.PositiveInfinity;
+
+        for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
+        {
+            RaycastHit hit = groundHitBuffer[hitIndex];
+
+            if (hit.collider == null ||
+                IsPlayerCollider(hit.collider) ||
+                !IsGroundCollider(hit.collider) ||
+                hit.distance >= nearestHitDistance)
+            {
+                continue;
+            }
+
+            groundHit = hit;
+            foundGround = true;
+            nearestHitDistance = hit.distance;
+        }
+
+        return foundGround;
     }
 
     private bool TryGetAuxiliaryGroundSupport(
-        out RaycastHit groundHit)
-    {
-        return TryGetAuxiliaryGroundSupport(
-            GetGroundProbeCenter(),
-            false,
-            out groundHit);
-    }
-
-    private bool TryGetAuxiliaryGroundSupport(
-        Vector3 groundProbeCenter,
-        bool requireAllProbes,
         out RaycastHit groundHit)
     {
         groundHit = default;
+        Vector3 groundProbeCenter = GetGroundProbeCenter();
         float groundProbeRadius =
             GetGroundProbeRadius(playerCollider);
         float probeDistance =
@@ -676,7 +675,6 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         bool foundGround = false;
-        int validGroundProbeCount = 0;
         for (int probeIndex = 0;
              probeIndex < GroundProbeDirections.Length;
              probeIndex++)
@@ -684,85 +682,55 @@ public sealed class pl_Move : MonoBehaviour
             Vector3 rayOrigin =
                 groundProbeCenter +
                 GetGroundProbeDirection(probeIndex) * groundProbeRadius;
-            bool foundProbeGround = TryGetNearestProbeSurface(
-                                        rayOrigin,
-                                        probeDistance,
-                                        out RaycastHit nearestProbeHit) &&
-                                    IsGroundCollider(
-                                        nearestProbeHit.collider);
+            int hitCount = Physics.RaycastNonAlloc(
+                rayOrigin,
+                Vector3.down,
+                groundHitBuffer,
+                probeDistance,
+                Physics.AllLayers,
+                QueryTriggerInteraction.Ignore);
 
-            if (!foundProbeGround)
+            RaycastHit nearestProbeHit = default;
+            bool foundProbeGround = false;
+            float nearestHitDistance = float.PositiveInfinity;
+
+            for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
             {
-                if (requireAllProbes)
+                RaycastHit hit = groundHitBuffer[hitIndex];
+
+                if (hit.collider == null ||
+                    IsPlayerCollider(hit.collider) ||
+                    !IsGroundCollider(hit.collider) ||
+                    hit.distance >= nearestHitDistance)
                 {
-                    groundHit = default;
-                    return false;
+                    continue;
                 }
 
-                continue;
+                nearestProbeHit = hit;
+                foundProbeGround = true;
+                nearestHitDistance = hit.distance;
             }
 
-            validGroundProbeCount++;
-            if (!foundGround ||
-                nearestProbeHit.point.y > groundHit.point.y)
+            if (foundProbeGround &&
+                (!foundGround ||
+                 nearestProbeHit.point.y > groundHit.point.y))
             {
                 groundHit = nearestProbeHit;
                 foundGround = true;
             }
         }
 
-        return foundGround &&
-               (!requireAllProbes ||
-                validGroundProbeCount == GroundProbeDirections.Length);
-    }
-
-    private bool TryGetNearestProbeSurface(
-        Vector3 rayOrigin,
-        float probeDistance,
-        out RaycastHit nearestHit)
-    {
-        int hitCount = Physics.RaycastNonAlloc(
-            rayOrigin,
-            Vector3.down,
-            groundHitBuffer,
-            probeDistance,
-            Physics.AllLayers,
-            QueryTriggerInteraction.Ignore);
-
-        nearestHit = default;
-        float nearestHitDistance = float.PositiveInfinity;
-
-        for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
-        {
-            RaycastHit hit = groundHitBuffer[hitIndex];
-
-            if (hit.collider == null ||
-                IsPlayerCollider(hit.collider) ||
-                hit.distance >= nearestHitDistance)
-            {
-                continue;
-            }
-
-            nearestHit = hit;
-            nearestHitDistance = hit.distance;
-        }
-
-        return nearestHit.collider != null;
+        return foundGround;
     }
 
     private Vector3 GetGroundProbeCenter()
     {
-        return GetGroundProbeCenter(transform.position);
-    }
-
-    private Vector3 GetGroundProbeCenter(Vector3 playerPosition)
-    {
         float currentGroundHeight =
-            playerPosition.y - playerHeight / 2f + skin;
+            transform.position.y - playerHeight / 2f + skin;
         return new Vector3(
-            playerPosition.x,
+            transform.position.x,
             currentGroundHeight + stepOffset + RayOriginOffset,
-            playerPosition.z);
+            transform.position.z);
     }
 
     private float GetGroundProbeRadius(
