@@ -27211,14 +27211,6 @@ PrefabInstance:
       propertyPath: m_Name
       value: BombPipe_Curve01
       objectReference: {fileID: 0}
-    - target: {fileID: 862364610960881184, guid: 013f1c6e27fa7404f8f76e6687e03071, type: 3}
-      propertyPath: exitSpeed
-      value: 16
-      objectReference: {fileID: 0}
-    - target: {fileID: 862364610960881184, guid: 013f1c6e27fa7404f8f76e6687e03071, type: 3}
-      propertyPath: preserveEntrySpeed
-      value: 0
-      objectReference: {fileID: 0}
     - target: {fileID: 7501740923581656755, guid: 013f1c6e27fa7404f8f76e6687e03071, type: 3}
       propertyPath: m_LocalPosition.x
       value: 16.070778
@@ -32685,10 +32677,6 @@ PrefabInstance:
     - target: {fileID: 497796294125332972, guid: 013f1c6e27fa7404f8f76e6687e03071, type: 3}
       propertyPath: m_Name
       value: BombPipe_Curve01 (1)
-      objectReference: {fileID: 0}
-    - target: {fileID: 862364610960881184, guid: 013f1c6e27fa7404f8f76e6687e03071, type: 3}
-      propertyPath: preserveEntrySpeed
-      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 7501740923581656755, guid: 013f1c6e27fa7404f8f76e6687e03071, type: 3}
       propertyPath: m_LocalPosition.x
