@@ -123,7 +123,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   renderersToHide: []
   collidersToDisable: []
-  breakEffectPrefab: {fileID: 0}
+  breakEffectPrefab: {fileID: 3414201384968299762, guid: a0ff8467a41ac7b4a8276f0ae7391277, type: 3}
   effectLifetime: 3
   onBroken:
     m_PersistentCalls:

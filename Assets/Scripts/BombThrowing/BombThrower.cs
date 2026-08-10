@@ -56,15 +56,29 @@ namespace SuperFinalFuse.BombThrowing
         private string lastDiagnosticEvent = "Not initialized";
         private int throwAttemptCount;
         private int successfulThrowCount;
+        private bool activeBombWasCaptured;
 
         public bool CanThrow => !inputBlocked && activeBombInstanceId == 0;
         public bool IsInputBlocked => inputBlocked;
         public bool IsAimInputHeld =>
             inputManager != null && inputManager.BombAimHeld;
-        public float ThrowPreparationProgress => CanThrow
-            ? 1f
-            : Mathf.Clamp01(CurrentLockAge /
-                Mathf.Max(0.01f, maximumThrowLockDuration));
+        public float ThrowPreparationProgress
+        {
+            get
+            {
+                if (CanThrow)
+                {
+                    return 1f;
+                }
+                if (activeBomb != null &&
+                    activeBomb.State == BombProjectileState.Captured)
+                {
+                    return 0f;
+                }
+                return Mathf.Clamp01(CurrentLockAge /
+                    Mathf.Max(0.01f, maximumThrowLockDuration));
+            }
+        }
         public int ActiveBombInstanceId => activeBombInstanceId;
         public float CurrentLockAge => activeBombInstanceId == 0
             ? 0f
@@ -252,6 +266,25 @@ namespace SuperFinalFuse.BombThrowing
                 return;
             }
 
+            // Captured bombs have unlimited lifetime while travelling through
+            // a pipe. The stale-lock failsafe must pause for the same period.
+            if (activeBomb.State == BombProjectileState.Captured)
+            {
+                activeBombWasCaptured = true;
+                return;
+            }
+
+            // Do not count time spent inside a pipe against the post-release
+            // failsafe. A freshly released bomb gets a full lock duration.
+            if (activeBombWasCaptured)
+            {
+                activeBombWasCaptured = false;
+                activeBombLaunchTime = Time.unscaledTime;
+                lastDiagnosticEvent =
+                    $"Bomb #{activeBombInstanceId} released from pipe; " +
+                    "failsafe timer restarted";
+            }
+
             if (Time.unscaledTime - activeBombLaunchTime < maximumThrowLockDuration)
             {
                 return;
@@ -277,6 +310,7 @@ namespace SuperFinalFuse.BombThrowing
             activeBomb = null;
             activeBombInstanceId = 0;
             activeBombLaunchTime = 0f;
+            activeBombWasCaptured = false;
         }
 
         /// <summary>

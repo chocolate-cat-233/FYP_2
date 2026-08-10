@@ -17,28 +17,33 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         IBombDirectHitReceiver,
         ICheckpointStateParticipant
     {
-        [Header("Pipe route")]
-        [Tooltip("Optional position where the captured bomb waits.")]
+        [Header("Portal ends")]
+        [Tooltip("Optional hidden holding position while a bomb is travelling.")]
         [SerializeField] private Transform capturePoint;
-        [Tooltip("Optional second pipe end. If empty, it is mirrored from Exit " +
-                 "across Capture Point, so existing pipes work bidirectionally.")]
+        [Tooltip("Portal A. Its Forward direction is used only when a bomb exits A.")]
         [SerializeField] private Transform entrance;
-        [Tooltip("One end of the pipe. Its forward direction is used when a bomb " +
-                 "leaves from this end.")]
+        [Tooltip("Portal B. Its Forward direction is used only when a bomb exits B.")]
         [SerializeField] private Transform exit;
+
+        [Header("Ordered route")]
+        [Tooltip("Children are read automatically in hierarchy order. The route is A -> children -> B.")]
+        [SerializeField] private Transform pathPointsRoot;
+        [SerializeField, HideInInspector] private Transform[] pathPoints =
+            System.Array.Empty<Transform>();
+
+        [Header("Travel")]
         [Min(0.01f)]
-        [Tooltip("Bomb travel speed inside the pipe. Travel time is calculated " +
-                 "as the distance between both ends divided by this value.")]
+        [Tooltip("Internal bomb speed. Travel duration = ordered route length / speed.")]
         [SerializeField] private float internalTravelSpeed = 5f;
+        [Tooltip("Keep the bomb's incoming speed magnitude when it exits. The destination portal still controls direction.")]
+        [SerializeField] private bool preserveEntrySpeed = true;
         [Min(0f)]
+        [Tooltip("Fallback/fixed exit speed. Used when Preserve Entry Speed is disabled, or when the incoming bomb is nearly stationary.")]
         [SerializeField] private float exitSpeed = 8f;
+        [SerializeField] private bool hideBombWhileTravelling = true;
         [Min(0f)]
-        [Tooltip("Prevents a bomb released inside the pipe trigger from being " +
-                 "captured again immediately.")]
         [SerializeField] private float releasedBombIgnoreDuration = 0.25f;
         [Min(0f)]
-        [Tooltip("A released bomb cannot enter any pipe until it has travelled " +
-                 "at least this far from its release point.")]
         [SerializeField] private float releasedBombIgnoreDistance = 1f;
         [SerializeField] private BombOwnerMask acceptedOwners = BombOwnerMask.All;
 
@@ -51,74 +56,67 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
         private Coroutine travelRoutine;
         private bool releaseFromExit;
         private bool checkpointWasOccupied;
+        private float activeTravelDuration;
+        private float capturedEntrySpeed;
 
         public BombPipeState State => state;
         public BombProjectile CapturedBomb => capturedBomb;
-        public float PipeLength
-        {
-            get
-            {
-                if (exit == null)
-                {
-                    return 0f;
-                }
+        public Transform PortalA => entrance;
+        public Transform PortalB => exit;
+        public Transform PathPointsRoot => pathPointsRoot;
+        public float InternalTravelSpeed => internalTravelSpeed;
+        public float PipeLength => CalculateRouteLength();
+        public float CurrentTravelDuration => state == BombPipeState.Occupied
+            ? activeTravelDuration
+            : PipeLength / Mathf.Max(0.01f, internalTravelSpeed);
 
-                Vector3 center = capturePoint != null
-                    ? capturePoint.position
-                    : transform.position;
-                return Vector3.Distance(
-                    GetEntrancePosition(center),
-                    exit.position);
-            }
+        private void Awake()
+        {
+            RefreshPathPointsFromHierarchy();
         }
-        public float CurrentTravelDuration =>
-            PipeLength / Mathf.Max(0.01f, internalTravelSpeed);
 
         public BombHitResult ReceiveBombHit(BombDirectHit hit)
         {
-            // The lock belongs to the bomb, not this pipe. Therefore it also
-            // protects against a different/overlapping pipe entrance placed at
-            // the release point.
             if (hit.Projectile != null &&
                 hit.Projectile.IsPipeRecaptureLocked)
             {
                 return BombHitResult.ContinueFlight;
             }
 
-            if (!acceptedOwners.Contains(hit.OwnerType) ||
+            if (hit.Projectile == null ||
+                !acceptedOwners.Contains(hit.OwnerType) ||
                 state == BombPipeState.Occupied ||
-                hit.Projectile == null ||
-                exit == null)
+                entrance == null || exit == null)
             {
                 return BombHitResult.Ignore;
             }
 
+            bool enteredAtA = DetermineEnteredAtA(
+                hit.Collider,
+                hit.Projectile.transform.position);
             Transform anchor = capturePoint != null ? capturePoint : transform;
-            // Capture immediately moves the projectile to the route center, so
-            // remember which end it touched before changing its transform.
-            Vector3 entryPosition = hit.Projectile.transform.position;
-            if (!hit.Projectile.Capture(anchor))
+            // Capture() deliberately clears the rigidbody velocity, so remember
+            // its magnitude before putting the bomb into the pipe.
+            float entrySpeed = hit.Projectile.Velocity.magnitude;
+            if (!hit.Projectile.Capture(anchor, hideBombWhileTravelling))
             {
                 return BombHitResult.Ignore;
             }
 
             capturedBomb = hit.Projectile;
             capturedBomb.Completed += HandleCapturedBombCompleted;
-            // A bomb entering through one end must leave through the other.
-            // Compare the actual hit/projectile position with both pipe ends.
-            Vector3 entrancePosition = GetEntrancePosition(anchor.position);
-            releaseFromExit =
-                (entryPosition - entrancePosition).sqrMagnitude <=
-                (entryPosition - exit.position).sqrMagnitude;
+            capturedEntrySpeed = entrySpeed;
+            releaseFromExit = enteredAtA;
+            activeTravelDuration =
+                PipeLength / Mathf.Max(0.01f, internalTravelSpeed);
             state = BombPipeState.Occupied;
             onBombEntered?.Invoke();
-            travelRoutine = StartCoroutine(TravelRoutine());
+            travelRoutine = StartCoroutine(TravelRoutine(activeTravelDuration));
             return BombHitResult.Capture;
         }
 
-        private IEnumerator TravelRoutine()
+        private IEnumerator TravelRoutine(float duration)
         {
-            float duration = CurrentTravelDuration;
             if (duration > 0f)
             {
                 yield return new WaitForSeconds(duration);
@@ -139,59 +137,101 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
             BombProjectile bomb = capturedBomb;
             bomb.Completed -= HandleCapturedBombCompleted;
+            Transform destination = releaseFromExit ? exit : entrance;
+            Vector3 releasePosition = destination.position;
+            Vector3 direction = destination.forward.sqrMagnitude > 0.001f
+                ? destination.forward.normalized
+                : Vector3.forward;
+            float releaseSpeed = preserveEntrySpeed && capturedEntrySpeed > 0.01f
+                ? capturedEntrySpeed
+                : exitSpeed;
+
             ClearOccupiedState();
-            Transform anchor = capturePoint != null ? capturePoint : transform;
-            Vector3 releasePosition;
-            Vector3 direction;
-
-            if (releaseFromExit)
-            {
-                releasePosition = exit.position;
-                direction = exit.forward.sqrMagnitude > 0.001f
-                    ? exit.forward.normalized
-                    : (exit.position - anchor.position).normalized;
-            }
-            else
-            {
-                releasePosition = GetEntrancePosition(anchor.position);
-                direction = GetEntranceDirection(anchor.position);
-            }
-
-            if (direction.sqrMagnitude < 0.001f)
-            {
-                direction = Vector3.forward;
-            }
-
             bomb.SetPipeRecaptureLock(
                 releasePosition,
                 releasedBombIgnoreDuration,
                 releasedBombIgnoreDistance);
-
             bomb.Release(
                 releasePosition,
                 Quaternion.LookRotation(direction, Vector3.up),
-                direction * exitSpeed);
+                direction * releaseSpeed);
             onBombReleased?.Invoke();
         }
 
-        private Vector3 GetEntrancePosition(Vector3 routeCenter)
+        private bool DetermineEnteredAtA(
+            Collider hitCollider,
+            Vector3 bombPosition)
         {
-            if (entrance != null)
+            if (BelongsToPortal(hitCollider, entrance))
             {
-                return entrance.position;
+                return true;
+            }
+            if (BelongsToPortal(hitCollider, exit))
+            {
+                return false;
             }
 
-            return routeCenter * 2f - exit.position;
+            return (bombPosition - entrance.position).sqrMagnitude <=
+                   (bombPosition - exit.position).sqrMagnitude;
         }
 
-        private Vector3 GetEntranceDirection(Vector3 routeCenter)
+        private static bool BelongsToPortal(
+            Collider hitCollider,
+            Transform portal)
         {
-            if (entrance != null && entrance.forward.sqrMagnitude > 0.001f)
+            if (hitCollider == null || portal == null)
             {
-                return entrance.forward.normalized;
+                return false;
             }
 
-            return (GetEntrancePosition(routeCenter) - routeCenter).normalized;
+            Transform hitTransform = hitCollider.transform;
+            return hitTransform == portal || hitTransform.IsChildOf(portal);
+        }
+
+        public float CalculateRouteLength()
+        {
+            if (entrance == null || exit == null)
+            {
+                return 0f;
+            }
+
+            float length = 0f;
+            Vector3 previous = entrance.position;
+            foreach (Transform point in pathPoints)
+            {
+                if (point == null)
+                {
+                    continue;
+                }
+                length += Vector3.Distance(previous, point.position);
+                previous = point.position;
+            }
+            length += Vector3.Distance(previous, exit.position);
+            return length;
+        }
+
+        public void RefreshPathPointsFromHierarchy()
+        {
+            if (pathPointsRoot == null)
+            {
+                Transform existing = transform.Find("PathPoints");
+                if (existing != null)
+                {
+                    pathPointsRoot = existing;
+                }
+            }
+
+            if (pathPointsRoot == null)
+            {
+                pathPoints = System.Array.Empty<Transform>();
+                return;
+            }
+
+            pathPoints = new Transform[pathPointsRoot.childCount];
+            for (int i = 0; i < pathPointsRoot.childCount; i++)
+            {
+                pathPoints[i] = pathPointsRoot.GetChild(i);
+            }
         }
 
         private void HandleCapturedBombCompleted(BombProjectile bomb)
@@ -211,6 +251,8 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             }
 
             capturedBomb = null;
+            activeTravelDuration = 0f;
+            capturedEntrySpeed = 0f;
             state = BombPipeState.Empty;
         }
 
@@ -221,8 +263,14 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                 capturedBomb.Completed -= HandleCapturedBombCompleted;
                 capturedBomb.Disarm();
             }
-
             ClearOccupiedState();
+        }
+
+        private void OnValidate()
+        {
+            internalTravelSpeed = Mathf.Max(0.01f, internalTravelSpeed);
+            exitSpeed = Mathf.Max(0f, exitSpeed);
+            RefreshPathPointsFromHierarchy();
         }
 
         public void CaptureCheckpointState()
@@ -232,8 +280,6 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
 
         public void RestoreCheckpointState()
         {
-            // Runtime bombs are cleared during respawn. A checkpoint should
-            // never retain a stale reference to an in-transit projectile.
             if (capturedBomb != null)
             {
                 capturedBomb.Completed -= HandleCapturedBombCompleted;
@@ -244,32 +290,38 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
             if (checkpointWasOccupied)
             {
                 Debug.LogWarning(
-                    $"Checkpoint captured '{name}' while its pipe was occupied. " +
-                    "It is restored empty because projectiles are transient.",
+                    $"Checkpoint captured '{name}' while occupied. " +
+                    "The transient bomb is restored as an empty pipe.",
                     this);
             }
         }
 
         private void OnDrawGizmosSelected()
         {
-            if (exit == null)
+            RefreshPathPointsFromHierarchy();
+            if (entrance == null || exit == null)
             {
                 return;
             }
 
-            Vector3 center = capturePoint != null
-                ? capturePoint.position
-                : transform.position;
-            Vector3 entrancePosition = GetEntrancePosition(center);
             Gizmos.color = state == BombPipeState.Occupied
                 ? Color.yellow
                 : Color.cyan;
-            Gizmos.DrawLine(entrancePosition, exit.position);
-            Gizmos.DrawWireSphere(entrancePosition, 0.15f);
-            Gizmos.DrawRay(
-                entrancePosition,
-                GetEntranceDirection(center) * 1.5f);
+            Vector3 previous = entrance.position;
+            Gizmos.DrawWireSphere(previous, 0.15f);
+            foreach (Transform point in pathPoints)
+            {
+                if (point == null)
+                {
+                    continue;
+                }
+                Gizmos.DrawLine(previous, point.position);
+                Gizmos.DrawWireSphere(point.position, 0.1f);
+                previous = point.position;
+            }
+            Gizmos.DrawLine(previous, exit.position);
             Gizmos.DrawWireSphere(exit.position, 0.15f);
+            Gizmos.DrawRay(entrance.position, entrance.forward * 1.5f);
             Gizmos.DrawRay(exit.position, exit.forward * 1.5f);
         }
     }

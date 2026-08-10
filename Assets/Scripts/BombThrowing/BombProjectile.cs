@@ -42,6 +42,8 @@ namespace SuperFinalFuse.BombThrowing
         private Rigidbody bombBody;
         private Collider[] bombColliders;
         private bool[] initialColliderEnabledStates;
+        private Renderer[] bombRenderers;
+        private bool[] initialRendererEnabledStates;
         private GameObject owner;
         private bool hasSentCompletion;
         private float remainingLifetime;
@@ -115,6 +117,12 @@ namespace SuperFinalFuse.BombThrowing
             for (int i = 0; i < bombColliders.Length; i++)
             {
                 initialColliderEnabledStates[i] = bombColliders[i].enabled;
+            }
+            bombRenderers = GetComponentsInChildren<Renderer>();
+            initialRendererEnabledStates = new bool[bombRenderers.Length];
+            for (int i = 0; i < bombRenderers.Length; i++)
+            {
+                initialRendererEnabledStates[i] = bombRenderers[i].enabled;
             }
             initialUseGravity = bombBody.useGravity;
             initialIsKinematic = bombBody.isKinematic;
@@ -316,7 +324,7 @@ namespace SuperFinalFuse.BombThrowing
                    contactedCollider.transform.IsChildOf(owner.transform);
         }
 
-        public bool Capture(Transform anchor)
+        public bool Capture(Transform anchor, bool hideVisual = false)
         {
             if (state != BombProjectileState.Flying)
             {
@@ -333,6 +341,10 @@ namespace SuperFinalFuse.BombThrowing
             bombBody.useGravity = false;
             bombBody.isKinematic = true;
             SetBombCollidersEnabled(false);
+            if (hideVisual)
+            {
+                SetBombRenderersEnabled(false);
+            }
 
             if (captureAnchor != null)
             {
@@ -361,6 +373,7 @@ namespace SuperFinalFuse.BombThrowing
             bombBody.isKinematic = initialIsKinematic;
             bombBody.useGravity = initialUseGravity;
             RestoreBombColliders();
+            RestoreBombRenderers();
             bombBody.linearVelocity = velocity;
             state = BombProjectileState.Flying;
             Physics.SyncTransforms();
@@ -405,6 +418,29 @@ namespace SuperFinalFuse.BombThrowing
                 if (projectileCollider != null)
                 {
                     projectileCollider.enabled = value;
+                }
+            }
+        }
+
+        private void SetBombRenderersEnabled(bool value)
+        {
+            foreach (Renderer bombRenderer in bombRenderers)
+            {
+                if (bombRenderer != null)
+                {
+                    bombRenderer.enabled = value;
+                }
+            }
+        }
+
+        private void RestoreBombRenderers()
+        {
+            for (int i = 0; i < bombRenderers.Length; i++)
+            {
+                if (bombRenderers[i] != null)
+                {
+                    bombRenderers[i].enabled =
+                        initialRendererEnabledStates[i];
                 }
             }
         }
