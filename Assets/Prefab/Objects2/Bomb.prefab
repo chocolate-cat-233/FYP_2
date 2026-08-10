@@ -149,7 +149,7 @@ MonoBehaviour:
     m_Bits: 4294967295
   explodeOnAnyCollision: 1
   maximumLifetime: 8
-  explosionEffectPrefab: {fileID: 0}
+  explosionEffectPrefab: {fileID: 8796276311610145074, guid: 1f4496226abcbd64e836b8e864cfcd88, type: 3}
   effectLifetime: 3
   showDebugBlast: 1
   debugBlastColor: {r: 1, g: 0.25, b: 0, a: 0.35}
