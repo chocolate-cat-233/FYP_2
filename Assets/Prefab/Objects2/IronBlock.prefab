@@ -185,7 +185,7 @@ PrefabInstance:
     - target: {fileID: -7511558181221131132, guid: 1529eca40b0e86147baed3f90eb7e9fb, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
-      objectReference: {fileID: 2100000, guid: 441c328148e570e49951ae311efad860, type: 2}
+      objectReference: {fileID: 2100000, guid: 7963988da7b423344b837f92a0e620bd, type: 2}
     - target: {fileID: 919132149155446097, guid: 1529eca40b0e86147baed3f90eb7e9fb, type: 3}
       propertyPath: m_Name
       value: ironStone
