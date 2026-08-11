@@ -42,6 +42,13 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                  "in the movement direction. Use 1 for unit-sized blocks.")]
         [SerializeField] private float minimumIronCenterDistance = 1f;
 
+        [Header("Visual")]
+        [Tooltip("Particle effect instantiated at the bomb hit point. " +
+                 "Wired to IronHitEffect.prefab by the Explosion FX factory.")]
+        [SerializeField] private GameObject hitEffectPrefab;
+        [Min(0f)]
+        [SerializeField] private float hitEffectLifetime = 2f;
+
         [Header("Events")]
         [SerializeField] private UnityEvent onMoveStarted;
         [SerializeField] private UnityEvent onMoveFinished;
@@ -143,9 +150,44 @@ namespace SuperFinalFuse.BombThrowing.Mechanisms
                 }
             }
 
+            // The impact reads regardless of whether the block can move:
+            // getting blasted is the moment the hit visual plays.
+            PlayHitEffect(hit);
+
             // Bombs still explode on a moving iron, but cannot stack another
             // movement while the current movement is active.
             return BombHitResult.Explode;
+        }
+
+        private void PlayHitEffect(BombDirectHit hit)
+        {
+            if (hitEffectPrefab == null)
+            {
+                return;
+            }
+
+            // Sparks fly back toward the bomb. hit.Normal points from the
+            // bomb toward the iron, so the effect faces the opposite way.
+            Vector3 direction = -hit.Normal;
+            Quaternion rotation;
+            if (Mathf.Abs(direction.y) >= 0.95f)
+            {
+                // Top/bottom hits: LookRotation's up vector would degenerate.
+                rotation = Quaternion.identity;
+            }
+            else
+            {
+                rotation = Quaternion.LookRotation(direction, Vector3.up);
+            }
+
+            GameObject effect = Instantiate(
+                hitEffectPrefab,
+                hit.Point,
+                rotation);
+            if (hitEffectLifetime > 0f)
+            {
+                Destroy(effect, hitEffectLifetime);
+            }
         }
 
         private void BeginMove(Vector3 direction)

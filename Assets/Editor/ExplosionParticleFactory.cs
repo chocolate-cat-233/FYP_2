@@ -22,14 +22,18 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 using SuperFinalFuse.BombThrowing;
+using SuperFinalFuse.BombThrowing.Mechanisms;
 
 public class ExplosionParticleFactory
 {
     const string ParticleTexDir = "Assets/Texture/Particles";
     const string FxMaterialDir = "Assets/Materials";
     const string EffectPrefabPath = "Assets/Prefab/Effects/BombExplosion.prefab";
+    const string IronEffectPrefabPath = "Assets/Prefab/Effects/IronHitEffect.prefab";
     const string QuadMeshPath = "Assets/Prefab/Effects/FX_QuadXZ.asset";
     const string BombPrefabPath = "Assets/Prefab/Objects2/Bomb.prefab";
+    const string IronBlockPrefabPath = "Assets/Prefab/Objects2/IronBlock.prefab";
+    const float IronHitEffectLifetime = 2f;
     const int Seed = 20260809;
 
     static readonly Color FlashWhite = new Color32(0xFF, 0xFF, 0xFF, 0xFF);
@@ -44,6 +48,9 @@ public class ExplosionParticleFactory
     static readonly Color SmokeDark = new Color32(0x4A, 0x4F, 0x58, 0xFF);
     static readonly Color SmokeMid = new Color32(0x5A, 0x60, 0x6B, 0xFF);
     static readonly Color SmokeLight = new Color32(0x6A, 0x70, 0x78, 0xFF);
+    static readonly Color IronDustDark = new Color32(0x4E, 0x4A, 0x44, 0xFF);
+    static readonly Color IronDustLight = new Color32(0x8A, 0x82, 0x78, 0xFF);
+    static readonly Color IronChunkDark = new Color32(0x38, 0x38, 0x3C, 0xFF);
 
     // ============================================================================
     // 菜单入口
@@ -144,6 +151,163 @@ public class ExplosionParticleFactory
         so.ApplyModifiedPropertiesWithoutUndo();
         AssetDatabase.SaveAssets();
         Debug.Log("[ExplosionFX] 已接线: Bomb.prefab → BombExplosion.prefab (effectLifetime=3)");
+    }
+
+    // ============================================================================
+    // 铁块被炸特效: 复用爆炸贴图/材质, 构建 IronHitEffect.prefab + 接线 IronBlock.prefab
+    // 触发点: BombMovableIron.ReceiveBombHit (炸弹直接命中铁块)
+    // ============================================================================
+    [MenuItem("Tools/Explosion FX/生成铁块被炸特效 (预制体+接线)")]
+    static void GenerateIronHitEffect()
+    {
+        // 与爆炸效果相同的调参工作流: 预制体存在时不覆盖, 用「重置」恢复出厂参数
+        if (File.Exists(IronEffectPrefabPath))
+        {
+            Debug.Log("[ExplosionFX] IronHitEffect.prefab 已存在，跳过重建（手动调整的参数不会被覆盖）。\n" +
+                      "需要恢复出厂参数: Tools > Explosion FX > 重置铁块被炸特效 (覆盖手动调整)");
+        }
+        else
+        {
+            BuildIronHitEffectPrefab();
+        }
+        WireIronBlockPrefab();
+    }
+
+    [MenuItem("Tools/Explosion FX/重置铁块被炸特效 (覆盖手动调整)")]
+    static void ResetIronHitEffect()
+    {
+        bool confirm = EditorUtility.DisplayDialog(
+            "重置铁块被炸特效",
+            "将用代码中的参数重新生成 IronHitEffect.prefab，\n你在预制体上手动调整的参数会被覆盖。确定继续？",
+            "重置", "取消");
+        if (!confirm)
+        {
+            return;
+        }
+        BuildIronHitEffectPrefab();
+        WireIronBlockPrefab();
+    }
+
+    static void BuildIronHitEffectPrefab()
+    {
+        Material matBurst = AssetDatabase.LoadAssetAtPath<Material>(
+            FxMaterialDir + "/FX_Additive_Burst.mat");
+        Material matCircle = AssetDatabase.LoadAssetAtPath<Material>(
+            FxMaterialDir + "/FX_Additive.mat");
+        Material matSmoke = AssetDatabase.LoadAssetAtPath<Material>(
+            FxMaterialDir + "/FX_Alpha_Smoke.mat");
+        if (matBurst == null || matCircle == null || matSmoke == null)
+        {
+            EditorUtility.DisplayDialog(
+                "生成失败",
+                "找不到爆炸粒子材质，请先执行「Tools > Explosion FX > 生成爆炸效果」。",
+                "确定");
+            return;
+        }
+
+        // 碎块轮廓表 (4×4 随机形状) + alpha 混合材质 (深色实体碎块感)
+        Texture2D texDebris = SaveAndImport(
+            GenDebrisChunkSheet(256, 4, 4), 256, ParticleTexDir + "/debris_chunks.png");
+        Material matDebris = CreateParticleMaterial(
+            FxMaterialDir + "/FX_Alpha_Debris.mat", texDebris, false);
+
+        GameObject root = new GameObject("IronHitEffect");
+
+        // --- 1. 撞击闪光: "哐"的瞬间 ---
+        ParticleSystem flash = CreateSystem(root.transform, "ImpactFlash", matBurst,
+            ParticleSystemRenderMode.Billboard);
+        ConfigureMain(flash, 0.2f, 0.08f, 0f, 0.35f, 0f, 5);
+        SetBurst(flash, 1);
+        SetSphereShape(flash, 0.01f);
+        SetColorOverLifetime(flash, MakeGradient(
+            (0f, FlashWhite), (0.5f, FlashYellow), (1f, new Color(1f, 0.5f, 0f, 0f))));
+        SetSizeOverLifetime(flash, Curve((0f, 1f), (0.7f, 1.6f)));
+
+        // --- 2. 铁块碎片: 轮廓表随机取帧 + 翻滚 + 重力抛物线 (root 由 BombMovableIron 朝向炸弹方向) ---
+        ParticleSystem debris = CreateSystem(root.transform, "IronDebris", matDebris,
+            ParticleSystemRenderMode.Billboard);
+        ConfigureMain(debris, 0.9f, new ParticleSystem.MinMaxCurve(0.5f, 0.9f),
+            new ParticleSystem.MinMaxCurve(3f, 7f),
+            new ParticleSystem.MinMaxCurve(0.1f, 0.28f), 4.5f, 40);
+        SetBurst(debris, 12);
+        SetConeShape(debris, 35f);
+        var tsa = debris.textureSheetAnimation;
+        tsa.enabled = true;
+        tsa.mode = ParticleSystemAnimationMode.Grid;
+        tsa.numTilesX = 4;
+        tsa.numTilesY = 4;
+        tsa.startFrame = new ParticleSystem.MinMaxCurve(0f, 15f); // 每颗粒子随机一种碎块形状
+        tsa.frameOverTime = 0f; // 保持起始帧, 不做动画
+        var rot = debris.rotationOverLifetime;
+        rot.enabled = true;
+        rot.z = new ParticleSystem.MinMaxCurve(-360f, 360f); // 翻飞
+        SetColorOverLifetime(debris, MakeGradient(
+            (0f, new Color(IronChunkDark.r, IronChunkDark.g, IronChunkDark.b, 0.95f)),
+            (0.7f, new Color(IronChunkDark.r, IronChunkDark.g, IronChunkDark.b, 0.8f)),
+            (1f, new Color(IronChunkDark.r, IronChunkDark.g, IronChunkDark.b, 0f))));
+
+        // --- 3. 铁灰烟尘: 命中点轻微扬起 ---
+        ParticleSystem dust = CreateSystem(root.transform, "IronDust", matSmoke,
+            ParticleSystemRenderMode.Billboard);
+        ConfigureMain(dust, 1f, new ParticleSystem.MinMaxCurve(0.6f, 1f),
+            new ParticleSystem.MinMaxCurve(0.3f, 0.8f),
+            new ParticleSystem.MinMaxCurve(0.15f, 0.3f), -0.2f, 20);
+        SetBurst(dust, 6, 0.03f);
+        SetSphereShape(dust, 0.06f);
+        var vel = dust.velocityOverLifetime;
+        vel.enabled = true;
+        vel.y = new ParticleSystem.MinMaxCurve(0.8f);
+        SetColorOverLifetime(dust, MakeGradient(
+            (0f, new Color(IronDustDark.r, IronDustDark.g, IronDustDark.b, 0.8f)),
+            (0.6f, new Color(IronDustLight.r, IronDustLight.g, IronDustLight.b, 0.4f)),
+            (1f, new Color(IronDustLight.r, IronDustLight.g, IronDustLight.b, 0f))));
+        SetSizeOverLifetime(dust, Curve((0f, 1f), (1f, 1.8f)));
+
+        PrefabUtility.SaveAsPrefabAsset(root, IronEffectPrefabPath);
+        Object.DestroyImmediate(root);
+        Debug.Log("[ExplosionFX] 铁块被炸特效已生成 → " + IronEffectPrefabPath);
+    }
+
+    // 锥形发射: 粒子沿 shape 的 +Z 方向喷出 (root 朝向炸弹)
+    static void SetConeShape(ParticleSystem ps, float angle)
+    {
+        var shape = ps.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Cone;
+        shape.angle = angle;
+        shape.radius = 0.05f;
+        shape.randomDirectionAmount = 0.15f;
+    }
+
+    static void WireIronBlockPrefab()
+    {
+        GameObject iron = AssetDatabase.LoadAssetAtPath<GameObject>(IronBlockPrefabPath);
+        GameObject effect = AssetDatabase.LoadAssetAtPath<GameObject>(IronEffectPrefabPath);
+        if (iron == null)
+        {
+            EditorUtility.DisplayDialog("接线失败", "找不到 " + IronBlockPrefabPath, "确定");
+            return;
+        }
+        if (effect == null)
+        {
+            EditorUtility.DisplayDialog("接线失败", "先执行「生成铁块被炸特效」再接线。", "确定");
+            return;
+        }
+
+        BombMovableIron movable = iron.GetComponent<BombMovableIron>();
+        if (movable == null)
+        {
+            EditorUtility.DisplayDialog("接线失败", "IronBlock.prefab 上找不到 BombMovableIron。", "确定");
+            return;
+        }
+
+        SerializedObject so = new SerializedObject(movable);
+        so.FindProperty("hitEffectPrefab").objectReferenceValue = effect;
+        so.FindProperty("hitEffectLifetime").floatValue = IronHitEffectLifetime;
+        so.ApplyModifiedPropertiesWithoutUndo();
+        AssetDatabase.SaveAssets();
+        Debug.Log("[ExplosionFX] 已接线: IronBlock.prefab → IronHitEffect.prefab " +
+                  $"(hitEffectLifetime={IronHitEffectLifetime})");
     }
 
     // ============================================================================
@@ -400,6 +564,101 @@ public class ExplosionParticleFactory
             float a = Mathf.Pow(mask * fade, 1.3f);
             return new Color32(255, 255, 255, (byte)(a * 255f));
         });
+    }
+
+    // 碎块轮廓表: cols×rows 随机不规则多边形, 供 TextureSheetAnimation 随机取帧
+    static Color32[] GenDebrisChunkSheet(int size, int cols, int rows)
+    {
+        var px = new Color32[size * size];
+        int cell = size / Mathf.Max(cols, rows);
+        float cellUv = cell / (float)size;
+        Vector2[][] polys = new Vector2[cols * rows][];
+
+        for (int c = 0; c < cols * rows; c++)
+        {
+            polys[c] = BuildChunkPolygon(c);
+        }
+
+        for (int cy = 0; cy < rows; cy++)
+        {
+            for (int cx = 0; cx < cols; cx++)
+            {
+                int index = cy * cols + cx;
+                Vector2[] poly = polys[index];
+                float minU = cx * cellUv;
+                float minV = cy * cellUv;
+
+                for (int y = 0; y < cell; y++)
+                {
+                    for (int x = 0; x < cell; x++)
+                    {
+                        // 单元格局部坐标: 中心为原点, 边长 [-1,1]×[-1,1]
+                        float lu = ((minU + (x + 0.5f) / size) - (minU + cellUv * 0.5f)) / (cellUv * 0.5f);
+                        float lv = ((minV + (y + 0.5f) / size) - (minV + cellUv * 0.5f)) / (cellUv * 0.5f);
+                        float a = PointInPolygon(new Vector2(lu, lv), poly)
+                            ? 1f
+                            : 1f - Mathf.SmoothStep(0.03f, 0.12f, PolygonDistance(lu, lv, poly));
+                        int pi = (cy * cell + y) * size + (cx * cell + x);
+                        px[pi] = new Color32(255, 255, 255, (byte)(a * 255f));
+                    }
+                }
+            }
+        }
+        return px;
+    }
+
+    // 不规则碎块轮廓: 按角度排序保证简单多边形 (星形, 无自交)
+    static Vector2[] BuildChunkPolygon(int index)
+    {
+        int vertexCount = 7 + (int)(Hash(index, 1, Seed) * 4f); // 7..10
+        var poly = new Vector2[vertexCount];
+        var angles = new float[vertexCount];
+        var radii = new float[vertexCount];
+        for (int i = 0; i < vertexCount; i++)
+        {
+            angles[i] = i * Mathf.PI * 2f / vertexCount + (Hash(index, i + 2, Seed) - 0.5f) * 0.5f;
+            radii[i] = 0.38f + Hash(index, i + 33, Seed) * 0.55f;
+        }
+        for (int i = 0; i < vertexCount; i++)
+        {
+            poly[i] = new Vector2(Mathf.Cos(angles[i]), Mathf.Sin(angles[i])) * radii[i];
+        }
+        return poly;
+    }
+
+    static bool PointInPolygon(Vector2 p, Vector2[] poly)
+    {
+        bool inside = false;
+        int n = poly.Length;
+        for (int i = 0, j = n - 1; i < n; j = i++)
+        {
+            if ((poly[i].y > p.y) != (poly[j].y > p.y) &&
+                p.x < (poly[j].x - poly[i].x) * (p.y - poly[i].y) /
+                      (poly[j].y - poly[i].y) + poly[i].x)
+            {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    static float PolygonDistance(float px, float py, Vector2[] poly)
+    {
+        float distance = float.MaxValue;
+        int n = poly.Length;
+        for (int i = 0; i < n; i++)
+        {
+            Vector2 a = poly[i];
+            Vector2 b = poly[(i + 1) % n];
+            Vector2 ab = b - a;
+            float t = Mathf.Clamp01(
+                ((px - a.x) * ab.x + (py - a.y) * ab.y) /
+                Mathf.Max(ab.sqrMagnitude, 1e-6f));
+            float dx = px - (a.x + ab.x * t);
+            float dy = py - (a.y + ab.y * t);
+            distance = Mathf.Min(distance, Mathf.Sqrt(dx * dx + dy * dy));
+        }
+        return distance;
     }
 
     /// 通用像素循环: fn(u,v) → Color32
