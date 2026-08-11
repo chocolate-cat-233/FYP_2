@@ -16,11 +16,12 @@
 
 // keep this file in sync with LitGBufferPass.hlsl
 
-// ── Wall hiding: globals pushed by WallHideManager ──────────────────
-// xy = screen-space circle centre (pixels, bottom-left origin),
-// z = circle radius (pixels). Strength fades the hole in/out.
-float4 _WallHidePoints[16];
-float  _WallHideStrengths[16];
+// ── Wall hiding: global settings pushed by WallHideManager ──────────
+// The hide circle itself is a per-renderer material property (_WallHidePoint,
+// see WallHideLitInput.hlsl) set via MaterialPropertyBlock on exactly the
+// occluders the manager detected — other objects reading this shader are
+// unaffected. Softness and cell size are global because they are look
+// settings shared by every WallHideLit material.
 half   _HideSoftness;          // relative width of the halftone gradient band
 half   _HideHalftoneCellSize;  // halftone cell size in pixels
 
@@ -225,31 +226,26 @@ Varyings LitPassVertex(Attributes input)
 }
 
 // ── Wall hiding (WallHideManager) ────────────────────────────────────
-// Discards pixels whose screen position falls inside any hide circle,
-// with a halftone (dot) gradient at the edge so the hole boundary
-// dissolves instead of aliasing. With no circles active (strengths all
-// 0) this is a no-op and the shader output is identical to URP Lit.
+// Discards pixels inside the per-object hide circle (_WallHidePoint,
+// xy = screen-space centre in pixels, z = radius in pixels), with a
+// halftone (dot) gradient at the edge so the hole boundary dissolves
+// instead of aliasing. The circle is set via MaterialPropertyBlock by
+// WallHideManager only on the renderers actually occluding the target;
+// everyone else keeps the default radius 0 → early-out, so the shader
+// output is identical to URP Lit.
 void ApplyWallHide(float2 screenUV, float2 positionCS)
 {
-    half tone = 0.0;
+    float4 circle = _WallHidePoint;
+    if (circle.z <= 0.001)
+        return;   // not an occluder (or fully faded)
 
-    for (int i = 0; i < 16; i++)
-    {
-        half strength = _WallHideStrengths[i];
-        if (strength <= 0.001) continue;
+    float2 pixelUV = screenUV * _ScreenParams.xy;
+    float  h = distance(pixelUV, circle.xy) / circle.z;
 
-        float4 circle = _WallHidePoints[i];
-        float2 pixelUV = screenUV * _ScreenParams.xy;
-
-        // Strength scales the radius so the hole grows/shrinks as it fades.
-        float radius = max(circle.z * strength, 1e-5);
-        float h = distance(pixelUV, circle.xy) / radius;
-
-        // 1 inside the circle, 0 outside; smooth band at the edge (halftoned).
-        tone = max(tone, 1.0 - smoothstep(1.0 - _HideSoftness, 1.0, h));
-    }
-
-    if (tone <= 0.001) return;
+    // 1 inside the circle, 0 outside; smooth band at the edge (halftoned).
+    half tone = 1.0 - smoothstep(1.0 - _HideSoftness, 1.0, h);
+    if (tone <= 0.001)
+        return;
 
     // Halftone soft edge: every screen cell draws a dot whose radius follows
     // the tone, so the boundary dissolves in a dot gradient.

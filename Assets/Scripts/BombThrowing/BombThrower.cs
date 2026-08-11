@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 using UnityEngine.Serialization;
 using System.Text;
 using SuperFinalFuse.BombThrowing.Buffs;
@@ -14,6 +13,7 @@ namespace SuperFinalFuse.BombThrowing
     }
 
     [DisallowMultipleComponent]
+    [RequireComponent(typeof(BombTrajectoryPreview))]
     public sealed class BombThrower : MonoBehaviour
     {
         [Header("References")]
@@ -21,6 +21,7 @@ namespace SuperFinalFuse.BombThrowing
         [SerializeField] private Transform throwOrigin;
         [Tooltip("Optional. Only used when Use Camera Direction is enabled.")]
         [SerializeField] private Transform cameraTransform;
+        [SerializeField] private InputManager inputManager;
 
         [Header("Throw")]
         [Min(0.1f)]
@@ -41,14 +42,13 @@ namespace SuperFinalFuse.BombThrowing
         [Tooltip("Off: throw toward the player's current facing direction. " +
                  "On: throw toward the camera's horizontal forward direction.")]
         [SerializeField] private bool useCameraDirection;
-        [Tooltip("Q by default. This is deliberately independent from InputManager.")]
-        [SerializeField] private Key keyboardThrowKey = Key.Q;
         [Min(1f)]
         [Tooltip("Failsafe: the throw lock is released after this many seconds " +
                  "even if a projectile completion callback is lost.")]
         [SerializeField] private float maximumThrowLockDuration = 10f;
 
         private BombProjectile activeBomb;
+        private BombTrajectoryPreview trajectoryPreview;
 
         private int activeBombInstanceId;
         private float activeBombLaunchTime;
@@ -59,6 +59,12 @@ namespace SuperFinalFuse.BombThrowing
 
         public bool CanThrow => !inputBlocked && activeBombInstanceId == 0;
         public bool IsInputBlocked => inputBlocked;
+        public bool IsAimInputHeld =>
+            inputManager != null && inputManager.BombAimHeld;
+        public float ThrowPreparationProgress => CanThrow
+            ? 1f
+            : Mathf.Clamp01(CurrentLockAge /
+                Mathf.Max(0.01f, maximumThrowLockDuration));
         public int ActiveBombInstanceId => activeBombInstanceId;
         public float CurrentLockAge => activeBombInstanceId == 0
             ? 0f
@@ -71,18 +77,44 @@ namespace SuperFinalFuse.BombThrowing
 
             if (inputBlocked)
             {
+                CancelTrajectoryAim();
                 return;
             }
 
-            bool keyboardPressed = Keyboard.current != null &&
-                                   Keyboard.current[keyboardThrowKey].wasPressedThisFrame;
-            bool gamepadPressed = Gamepad.current != null &&
-                                  Gamepad.current.buttonWest.wasPressedThisFrame;
+            UpdateTrajectoryInput();
+        }
 
-            if (keyboardPressed || gamepadPressed)
+        private void UpdateTrajectoryInput()
+        {
+            if (inputManager == null)
+            {
+                CancelTrajectoryAim();
+                return;
+            }
+
+            bool confirmPressed =
+                inputManager.BombThrowPressedThisFrame;
+
+            // Left click always remains a valid immediate throw. Holding the
+            // aim action only adds the optional trajectory preview.
+            if (confirmPressed)
             {
                 TryThrow();
+                trajectoryPreview?.Hide();
             }
+
+            if (!inputManager.BombAimHeld)
+            {
+                CancelTrajectoryAim();
+                return;
+            }
+
+            trajectoryPreview?.Show(this);
+        }
+
+        private void CancelTrajectoryAim()
+        {
+            trajectoryPreview?.Hide();
         }
 
         [ContextMenu("Throw Bomb")]
@@ -161,6 +193,19 @@ namespace SuperFinalFuse.BombThrowing
             float upwardSpeed = throwSpeed * Mathf.Sin(angleRadians);
             return horizontalDirection * horizontalSpeed +
                    Vector3.up * upwardSpeed;
+        }
+
+        public bool TryGetTrajectoryData(
+            out Vector3 origin,
+            out Vector3 velocity,
+            out BombProjectile prefab)
+        {
+            prefab = bombPrefab;
+            origin = throwOrigin != null
+                ? throwOrigin.position
+                : transform.position + Vector3.up * fallbackThrowHeight;
+            velocity = CalculateLaunchVelocity(GetHorizontalThrowDirection());
+            return prefab != null && !inputBlocked;
         }
 
         private void HandleBombCompleted(BombProjectile bomb)
@@ -270,9 +315,8 @@ namespace SuperFinalFuse.BombThrowing
             report.AppendLine($"Active bomb instance ID: {activeBombInstanceId}");
             report.AppendLine($"Lock age (unscaled): {CurrentLockAge:0.00}s");
             report.AppendLine($"Attempts / successes: {throwAttemptCount} / {successfulThrowCount}");
-            report.AppendLine($"Keyboard detected: {Keyboard.current != null}");
-            report.AppendLine($"Q currently pressed: " +
-                              $"{(Keyboard.current != null && Keyboard.current.qKey.isPressed)}");
+            report.AppendLine($"InputManager assigned: {inputManager != null}");
+            report.AppendLine($"BombAim held: {IsAimInputHeld}");
             report.AppendLine($"Time scale: {Time.timeScale:0.###}");
             report.AppendLine($"Last event: {lastDiagnosticEvent}");
             return report.ToString();
@@ -280,9 +324,21 @@ namespace SuperFinalFuse.BombThrowing
 
         private void OnEnable()
         {
+            if (inputManager == null)
+            {
+                inputManager = GetComponent<InputManager>();
+            }
+
             if (GetComponent<BombBuffController>() == null)
             {
                 gameObject.AddComponent<BombBuffController>();
+            }
+
+            trajectoryPreview = GetComponent<BombTrajectoryPreview>();
+            if (trajectoryPreview == null && Application.isPlaying)
+            {
+                trajectoryPreview =
+                    gameObject.AddComponent<BombTrajectoryPreview>();
             }
 
             lastDiagnosticEvent = "BombThrower enabled";
@@ -290,6 +346,7 @@ namespace SuperFinalFuse.BombThrowing
 
         private void OnDisable()
         {
+            CancelTrajectoryAim();
             lastDiagnosticEvent = "BombThrower disabled";
             if (!Application.isPlaying)
             {

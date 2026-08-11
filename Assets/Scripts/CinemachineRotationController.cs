@@ -1,39 +1,78 @@
 using Unity.Cinemachine;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 [DisallowMultipleComponent]
 [RequireComponent(typeof(CinemachineCamera))]
+[RequireComponent(typeof(CinemachineCameraOffset))]
 public sealed class CinemachineRotationController : MonoBehaviour
 {
     private const float AngleEpsilon = 0.01f;
+    private const float OffsetEpsilon = 0.001f;
 
     [Header("Rotation")]
     [Min(0.01f)]
-    [SerializeField] private float rotationSpeed = 90f;
+    [SerializeField] private float rotationSmoothTime = 0.35f;
+    [Min(0.01f)]
+    [FormerlySerializedAs("rotationSpeed")]
+    [SerializeField] private float maxRotationSpeed = 90f;
 
+    [Header("Offset")]
+    [Min(0.01f)]
+    [SerializeField] private float offsetSmoothTime = 0.4f;
+    [Min(0.01f)]
+    [SerializeField] private float maxOffsetSpeed = 8f;
+
+    private CinemachineCameraOffset cameraOffset;
     private float targetRotationX;
     private float targetRotationY;
+    private float rotationVelocityX;
+    private float rotationVelocityY;
+    private Vector3 targetOffset;
+    private Vector3 offsetVelocity;
 
     public bool IsRotating { get; private set; }
+    public bool IsOffsetMoving { get; private set; }
     public float TargetRotationX => targetRotationX;
     public float TargetRotationY => targetRotationY;
+    public Vector3 TargetOffset => targetOffset;
+
+    private void Awake()
+    {
+        cameraOffset = GetComponent<CinemachineCameraOffset>();
+    }
 
     private void OnEnable()
     {
-        if (rotationSpeed <= 0f)
+        cameraOffset = GetComponent<CinemachineCameraOffset>();
+
+        if (!ValidateConfiguration())
         {
-            Debug.LogError(
-                $"{nameof(CinemachineRotationController)} on '{name}' requires " +
-                "a Rotation Speed greater than zero.",
-                this);
             enabled = false;
             return;
         }
 
+        Vector3 currentEulerAngles = transform.eulerAngles;
+        targetRotationX = currentEulerAngles.x;
+        targetRotationY = currentEulerAngles.y;
+        targetOffset = cameraOffset.Offset;
+        ResetMotionState();
+
         WarnIfCameraPipelineControlsRotation();
     }
 
+    private void OnDisable()
+    {
+        ResetMotionState();
+    }
+
     private void Update()
+    {
+        UpdateRotation();
+        UpdateOffset();
+    }
+
+    private void UpdateRotation()
     {
         if (!IsRotating)
         {
@@ -41,15 +80,20 @@ public sealed class CinemachineRotationController : MonoBehaviour
         }
 
         Vector3 currentEulerAngles = transform.eulerAngles;
-        float maxAngleDelta = rotationSpeed * Time.deltaTime;
-        float nextRotationX = Mathf.MoveTowardsAngle(
+        float nextRotationX = Mathf.SmoothDampAngle(
             currentEulerAngles.x,
             targetRotationX,
-            maxAngleDelta);
-        float nextRotationY = Mathf.MoveTowardsAngle(
+            ref rotationVelocityX,
+            rotationSmoothTime,
+            maxRotationSpeed,
+            Time.deltaTime);
+        float nextRotationY = Mathf.SmoothDampAngle(
             currentEulerAngles.y,
             targetRotationY,
-            maxAngleDelta);
+            ref rotationVelocityY,
+            rotationSmoothTime,
+            maxRotationSpeed,
+            Time.deltaTime);
 
         SetRotationXY(currentEulerAngles, nextRotationX, nextRotationY);
 
@@ -67,6 +111,34 @@ public sealed class CinemachineRotationController : MonoBehaviour
                 targetRotationX,
                 targetRotationY);
             IsRotating = false;
+            rotationVelocityX = 0f;
+            rotationVelocityY = 0f;
+        }
+    }
+
+    private void UpdateOffset()
+    {
+        if (!IsOffsetMoving)
+        {
+            return;
+        }
+
+        Vector3 nextOffset = Vector3.SmoothDamp(
+            cameraOffset.Offset,
+            targetOffset,
+            ref offsetVelocity,
+            offsetSmoothTime,
+            maxOffsetSpeed,
+            Time.deltaTime);
+
+        cameraOffset.Offset = nextOffset;
+
+        if ((nextOffset - targetOffset).sqrMagnitude <=
+            OffsetEpsilon * OffsetEpsilon)
+        {
+            cameraOffset.Offset = targetOffset;
+            IsOffsetMoving = false;
+            offsetVelocity = Vector3.zero;
         }
     }
 
@@ -123,10 +195,52 @@ public sealed class CinemachineRotationController : MonoBehaviour
                 targetRotationX,
                 targetRotationY);
             IsRotating = false;
+            rotationVelocityX = 0f;
+            rotationVelocityY = 0f;
             return;
         }
 
         IsRotating = true;
+    }
+
+    /// <summary>
+    /// Smoothly moves the Cinemachine camera-space offset to the supplied
+    /// target.
+    /// </summary>
+    public void OffsetTo(Vector3 newTargetOffset)
+    {
+        if (!isActiveAndEnabled)
+        {
+            return;
+        }
+
+        if (!IsFinite(newTargetOffset))
+        {
+            Debug.LogError(
+                $"{nameof(OffsetTo)} on '{name}' requires a finite offset.",
+                this);
+            return;
+        }
+
+        if (IsOffsetMoving &&
+            (targetOffset - newTargetOffset).sqrMagnitude <=
+            OffsetEpsilon * OffsetEpsilon)
+        {
+            return;
+        }
+
+        targetOffset = newTargetOffset;
+
+        if ((cameraOffset.Offset - targetOffset).sqrMagnitude <=
+            OffsetEpsilon * OffsetEpsilon)
+        {
+            cameraOffset.Offset = targetOffset;
+            IsOffsetMoving = false;
+            offsetVelocity = Vector3.zero;
+            return;
+        }
+
+        IsOffsetMoving = true;
     }
 
     /// <summary>
@@ -164,6 +278,65 @@ public sealed class CinemachineRotationController : MonoBehaviour
             rotationX,
             rotationY,
             currentEulerAngles.z);
+    }
+
+    private bool ValidateConfiguration()
+    {
+        bool isValid = true;
+
+        if (cameraOffset == null)
+        {
+            Debug.LogError(
+                $"{nameof(CinemachineRotationController)} on '{name}' " +
+                $"requires a {nameof(CinemachineCameraOffset)} component.",
+                this);
+            isValid = false;
+        }
+
+        if (!IsPositiveFinite(rotationSmoothTime) ||
+            !IsPositiveFinite(maxRotationSpeed))
+        {
+            Debug.LogError(
+                $"{nameof(CinemachineRotationController)} on '{name}' " +
+                "requires finite Rotation Smooth Time and Max Rotation " +
+                "Speed values greater than zero.",
+                this);
+            isValid = false;
+        }
+
+        if (!IsPositiveFinite(offsetSmoothTime) ||
+            !IsPositiveFinite(maxOffsetSpeed))
+        {
+            Debug.LogError(
+                $"{nameof(CinemachineRotationController)} on '{name}' " +
+                "requires finite Offset Smooth Time and Max Offset Speed " +
+                "values greater than zero.",
+                this);
+            isValid = false;
+        }
+
+        return isValid;
+    }
+
+    private void ResetMotionState()
+    {
+        IsRotating = false;
+        IsOffsetMoving = false;
+        rotationVelocityX = 0f;
+        rotationVelocityY = 0f;
+        offsetVelocity = Vector3.zero;
+    }
+
+    private static bool IsPositiveFinite(float value)
+    {
+        return value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    private static bool IsFinite(Vector3 value)
+    {
+        return !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&
+               !float.IsNaN(value.y) && !float.IsInfinity(value.y) &&
+               !float.IsNaN(value.z) && !float.IsInfinity(value.z);
     }
 
     private void WarnIfCameraPipelineControlsRotation()

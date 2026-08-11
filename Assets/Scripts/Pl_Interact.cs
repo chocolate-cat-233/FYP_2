@@ -21,8 +21,29 @@ public class Pl_Interact : MonoBehaviour
     private Movable activeMovable;
     private PlayerState stateBeforeMoving;
     private Vector3 playerOffsetFromMovable;
+    private bool isInputBlocked;
 
     public int NearbyInteractableCount => nearbyInteractables.Count;
+
+    public void CancelCurrentInteraction()
+    {
+        CancelMoveToStandPoint();
+        StopMovableInteraction();
+    }
+
+    public void SetInputBlocked(bool blocked)
+    {
+        if (isInputBlocked == blocked)
+        {
+            return;
+        }
+
+        isInputBlocked = blocked;
+        if (isInputBlocked)
+        {
+            CancelCurrentInteraction();
+        }
+    }
 
     private void Update()
     {
@@ -61,8 +82,19 @@ public class Pl_Interact : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if (!other.CompareTag(interactableTag) ||
-            nearbyInteractables.Contains(other))
+        if (other == null || !other.CompareTag(interactableTag))
+        {
+            return;
+        }
+
+        Hide hide = other.GetComponentInParent<Hide>();
+        if (hide != null)
+        {
+            hide.WhenBeTouch();
+            return;
+        }
+
+        if (nearbyInteractables.Contains(other))
         {
             return;
         }
@@ -123,6 +155,11 @@ public class Pl_Interact : MonoBehaviour
 
     private void HandleInteractPressed()
     {
+        if (isInputBlocked)
+        {
+            return;
+        }
+
         if (isMovingMovable)
         {
             StopMovableInteraction();
@@ -410,8 +447,7 @@ public class Pl_Interact : MonoBehaviour
 
     private void OnDisable()
     {
-        CancelMoveToStandPoint();
-        StopMovableInteraction();
+        CancelCurrentInteraction();
         UnsubscribeFromInput();
         nearbyInteractables.Clear();
     }

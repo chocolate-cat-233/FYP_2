@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 using SuperFinalFuse.BombThrowing.Mechanisms;
 
 public sealed class pl_Move : MonoBehaviour
@@ -36,7 +37,10 @@ public sealed class pl_Move : MonoBehaviour
     [Min(0.001f)]
     [SerializeField] private float playerHeight = 2f;
     [Min(0f)]
-    [SerializeField] private float groundSnapDistance = 0.2f;
+    [FormerlySerializedAs("groundSnapDistance")]
+    [SerializeField] private float centerGroundSnapDistance = 0.2f;
+    [Min(0f)]
+    [SerializeField] private float auxiliaryGroundSnapDistance = 0.2f;
     [Min(0f)]
     [SerializeField] private float skin = 0.02f;
     [Min(0f)]
@@ -60,9 +64,9 @@ public sealed class pl_Move : MonoBehaviour
     private readonly RaycastHit[] wallHitBuffer = new RaycastHit[16];
     private readonly RaycastHit[] groundHitBuffer = new RaycastHit[32];
     private Action<Vector3> horizontalMovementDriver;
-    private BombMovableIron groundIron;
-    private Rigidbody groundIronBody;
-    private Vector3 groundIronPosition;
+    private Behaviour groundCarrier;
+    private Rigidbody groundCarrierBody;
+    private Vector3 groundCarrierPosition;
 
     public bool IsGrounded { get; private set; }
     public bool IsMovingToTarget => isMovingToTarget;
@@ -88,7 +92,7 @@ public sealed class pl_Move : MonoBehaviour
         IsGrounded = false;
         isMovingToTarget = false;
         isMovementReady = true;
-        ClearGroundIron();
+        ClearGroundCarrier();
 
         stateManager.StateChanged += OnPlayerStateChanged;
         ApplyPlayerState(stateManager.CurrentState);
@@ -107,7 +111,7 @@ public sealed class pl_Move : MonoBehaviour
         IsGrounded = false;
         isMovingToTarget = false;
         isMovementReady = false;
-        ClearGroundIron();
+        ClearGroundCarrier();
         horizontalMovementDriver?.Invoke(Vector3.zero);
     }
 
@@ -119,7 +123,7 @@ public sealed class pl_Move : MonoBehaviour
         }
 
         float deltaTime = Time.deltaTime;
-        ApplyGroundIronMovement();
+        ApplyGroundCarrierMovement();
 
         if (isMovingToTarget)
         {
@@ -456,100 +460,106 @@ public sealed class pl_Move : MonoBehaviour
 
     private float GetPlayerWorldRadius()
     {
-        Vector3 colliderScale = playerCollider.transform.lossyScale;
+        return GetPlayerWorldRadius(playerCollider);
+    }
+
+    private static float GetPlayerWorldRadius(
+        CapsuleCollider capsuleCollider)
+    {
+        if (capsuleCollider == null)
+        {
+            return 0f;
+        }
+
+        Vector3 colliderScale = capsuleCollider.transform.lossyScale;
         float horizontalScale = Mathf.Max(
             Mathf.Abs(colliderScale.x),
             Mathf.Abs(colliderScale.z));
 
-        return playerCollider.radius * horizontalScale;
+        return capsuleCollider.radius * horizontalScale;
     }
 
     private void SnapOnGround()
     {
+        bool wasGrounded = IsGrounded;
         if (TryGetGroundHit(out RaycastHit raycastHit))
         {
-            BombMovableIron hitIron =
-                raycastHit.collider.GetComponentInParent<BombMovableIron>();
-            groundNormal = raycastHit.normal;
-            float groundHeight = raycastHit.point.y + playerHeight / 2f;
-            float bottomDistance = transform.position.y - groundHeight;
-            bool reachedGround = bottomDistance <= skin;
-            bool canSnapDownSlope = IsGrounded &&
-                                    bottomDistance <= groundSnapDistance;
-
-            if (reachedGround || canSnapDownSlope)
-            {
-                IsGrounded = true;
-                float groundSkin = hitIron != null ? 0f : skin;
-                transform.position = new Vector3(
-                    transform.position.x,
-                    groundHeight - groundSkin,
-                    transform.position.z);
-                SetGroundIron(hitIron, raycastHit.rigidbody);
-            }
-            else
-            {
-                IsGrounded = false;
-                ClearGroundIron();
-            }
+            ApplyGroundHit(raycastHit);
         }
-        else if (IsGrounded && HasAuxiliaryGroundSupport())
+        else if (wasGrounded &&
+                 TryGetAuxiliaryGroundSupport(
+                     out RaycastHit auxiliaryGroundHit))
         {
-            IsGrounded = true;
-            ClearGroundIron();
+            ApplyGroundHit(auxiliaryGroundHit);
         }
         else
         {
             IsGrounded = false;
             groundNormal = Vector3.up;
-            ClearGroundIron();
+            ClearGroundCarrier();
         }
     }
 
-    private void ApplyGroundIronMovement()
+    private void ApplyGroundHit(RaycastHit groundHit)
+    {
+        Behaviour hitCarrier = GetGroundCarrier(groundHit.collider);
+        float groundHeight = groundHit.point.y + playerHeight / 2f;
+        float groundSkin = hitCarrier != null ? 0f : skin;
+
+        IsGrounded = true;
+        groundNormal = groundHit.normal;
+        transform.position = new Vector3(
+            transform.position.x,
+            groundHeight - groundSkin,
+            transform.position.z);
+        SetGroundCarrier(hitCarrier, groundHit.rigidbody);
+    }
+
+    private void ApplyGroundCarrierMovement()
     {
         if (!IsGrounded ||
-            groundIron == null ||
-            groundIronBody == null ||
-            !groundIron.isActiveAndEnabled)
+            groundCarrier == null ||
+            groundCarrierBody == null ||
+            !groundCarrier.isActiveAndEnabled)
         {
-            ClearGroundIron();
+            ClearGroundCarrier();
             return;
         }
 
-        Vector3 currentIronPosition = groundIronBody.position;
-        transform.position += currentIronPosition - groundIronPosition;
-        groundIronPosition = currentIronPosition;
+        Vector3 currentCarrierPosition = groundCarrierBody.position;
+        transform.position +=
+            currentCarrierPosition - groundCarrierPosition;
+        groundCarrierPosition = currentCarrierPosition;
     }
 
-    private void SetGroundIron(BombMovableIron iron, Rigidbody ironBody)
+    private void SetGroundCarrier(
+        Behaviour carrier,
+        Rigidbody carrierBody)
     {
-        groundIron = iron;
-        groundIronBody = iron != null ? ironBody : null;
-        groundIronPosition = groundIronBody != null
-            ? groundIronBody.position
+        groundCarrier = carrier;
+        groundCarrierBody = carrier != null ? carrierBody : null;
+        groundCarrierPosition = groundCarrierBody != null
+            ? groundCarrierBody.position
             : Vector3.zero;
     }
 
-    private void ClearGroundIron()
+    private void ClearGroundCarrier()
     {
-        groundIron = null;
-        groundIronBody = null;
-        groundIronPosition = Vector3.zero;
+        groundCarrier = null;
+        groundCarrierBody = null;
+        groundCarrierPosition = Vector3.zero;
     }
 
     private bool TryGetGroundHit(out RaycastHit groundHit)
     {
-        float currentGroundHeight = transform.position.y - playerHeight / 2f + skin;
-        Vector3 rayOrigin = new Vector3(
-            transform.position.x,
-            currentGroundHeight + stepOffset + RayOriginOffset,
-            transform.position.z);
+        Vector3 rayOrigin = GetGroundProbeCenter();
+        float probeDistance =
+            GetGroundProbeDistance(centerGroundSnapDistance);
         int hitCount = Physics.RaycastNonAlloc(
             rayOrigin,
             Vector3.down,
             groundHitBuffer,
-            2000f,
+            probeDistance,
             Physics.AllLayers,
             QueryTriggerInteraction.Ignore);
 
@@ -577,23 +587,22 @@ public sealed class pl_Move : MonoBehaviour
         return foundGround;
     }
 
-    private bool HasAuxiliaryGroundSupport()
+    private bool TryGetAuxiliaryGroundSupport(
+        out RaycastHit groundHit)
     {
-        float currentGroundHeight = transform.position.y - playerHeight / 2f + skin;
-        Vector3 groundProbeCenter = new Vector3(
-            transform.position.x,
-            currentGroundHeight + stepOffset + RayOriginOffset,
-            transform.position.z);
-        float playerWorldRadius = GetPlayerWorldRadius();
-        float groundProbeRadius = Mathf.Min(
-            playerWorldRadius * GroundProbeRadiusScale,
-            Mathf.Max(0f, playerWorldRadius - skin));
+        groundHit = default;
+        Vector3 groundProbeCenter = GetGroundProbeCenter();
+        float groundProbeRadius =
+            GetGroundProbeRadius(playerCollider);
+        float probeDistance =
+            GetGroundProbeDistance(auxiliaryGroundSnapDistance);
 
         if (groundProbeRadius <= InputDeadZone)
         {
             return false;
         }
 
+        bool foundGround = false;
         for (int probeIndex = 0;
              probeIndex < GroundProbeDirections.Length;
              probeIndex++)
@@ -605,9 +614,13 @@ public sealed class pl_Move : MonoBehaviour
                 rayOrigin,
                 Vector3.down,
                 groundHitBuffer,
-                2000f,
+                probeDistance,
                 Physics.AllLayers,
                 QueryTriggerInteraction.Ignore);
+
+            RaycastHit nearestProbeHit = default;
+            bool foundProbeGround = false;
+            float nearestHitDistance = float.PositiveInfinity;
 
             for (int hitIndex = 0; hitIndex < hitCount; hitIndex++)
             {
@@ -615,21 +628,137 @@ public sealed class pl_Move : MonoBehaviour
 
                 if (hit.collider == null ||
                     IsPlayerCollider(hit.collider) ||
-                    !IsGroundCollider(hit.collider))
+                    !IsGroundCollider(hit.collider) ||
+                    hit.distance >= nearestHitDistance)
                 {
                     continue;
                 }
 
-                float groundHeight = hit.point.y + playerHeight / 2f;
-                float bottomDistance = transform.position.y - groundHeight;
-                if (bottomDistance <= groundSnapDistance)
-                {
-                    return true;
-                }
+                nearestProbeHit = hit;
+                foundProbeGround = true;
+                nearestHitDistance = hit.distance;
+            }
+
+            if (foundProbeGround &&
+                (!foundGround ||
+                 nearestProbeHit.point.y > groundHit.point.y))
+            {
+                groundHit = nearestProbeHit;
+                foundGround = true;
             }
         }
 
-        return false;
+        return foundGround;
+    }
+
+    private Vector3 GetGroundProbeCenter()
+    {
+        float currentGroundHeight =
+            transform.position.y - playerHeight / 2f + skin;
+        return new Vector3(
+            transform.position.x,
+            currentGroundHeight + stepOffset + RayOriginOffset,
+            transform.position.z);
+    }
+
+    private float GetGroundProbeRadius(
+        CapsuleCollider capsuleCollider)
+    {
+        float playerWorldRadius =
+            GetPlayerWorldRadius(capsuleCollider);
+        return Mathf.Min(
+            playerWorldRadius * GroundProbeRadiusScale,
+            Mathf.Max(0f, playerWorldRadius - skin));
+    }
+
+    private float GetGroundProbeDistance(float snapDistance)
+    {
+        return stepOffset + snapDistance + skin + RayOriginOffset;
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        CapsuleCollider capsuleCollider = playerCollider != null
+            ? playerCollider
+            : GetComponent<CapsuleCollider>();
+        if (capsuleCollider == null)
+        {
+            return;
+        }
+
+        Vector3 probeCenter = GetGroundProbeCenter();
+        float centerProbeDistance =
+            GetGroundProbeDistance(centerGroundSnapDistance);
+        float auxiliaryProbeDistance =
+            GetGroundProbeDistance(auxiliaryGroundSnapDistance);
+
+        Gizmos.color = Color.yellow;
+        DrawGroundProbeGizmo(probeCenter, centerProbeDistance);
+
+        float probeRadius = GetGroundProbeRadius(capsuleCollider);
+        if (probeRadius <= InputDeadZone)
+        {
+            return;
+        }
+
+        Gizmos.color = Color.cyan;
+        for (int i = 0; i < GroundProbeDirections.Length; i++)
+        {
+            Vector3 probeOrigin =
+                probeCenter + GroundProbeDirections[i] * probeRadius;
+            DrawGroundProbeGizmo(probeOrigin, auxiliaryProbeDistance);
+        }
+
+        Gizmos.color = new Color(1f, 0.5f, 0f);
+        Vector3 firstLimitPoint = Vector3.zero;
+        Vector3 previousLimitPoint = Vector3.zero;
+        for (int i = 0; i < GroundProbeDirections.Length; i++)
+        {
+            Vector3 probeOrigin =
+                probeCenter + GroundProbeDirections[i] * probeRadius;
+            Vector3 limitPoint =
+                probeOrigin + Vector3.down * auxiliaryProbeDistance;
+
+            Gizmos.DrawWireSphere(limitPoint, 0.025f);
+            if (i == 0)
+            {
+                firstLimitPoint = limitPoint;
+            }
+            else
+            {
+                Gizmos.DrawLine(previousLimitPoint, limitPoint);
+            }
+
+            previousLimitPoint = limitPoint;
+        }
+
+        Gizmos.DrawLine(previousLimitPoint, firstLimitPoint);
+    }
+
+    private static void DrawGroundProbeGizmo(
+        Vector3 origin,
+        float length)
+    {
+        const float OriginRadius = 0.025f;
+        Gizmos.DrawWireSphere(origin, OriginRadius);
+        Gizmos.DrawLine(origin, origin + Vector3.down * length);
+    }
+
+    private static Behaviour GetGroundCarrier(Collider groundCollider)
+    {
+        if (groundCollider == null)
+        {
+            return null;
+        }
+
+        BombMovableIron iron =
+            groundCollider.GetComponentInParent<BombMovableIron>();
+        if (iron != null)
+        {
+            return iron;
+        }
+
+        return groundCollider.GetComponentInParent<BombRailPlatform>();
     }
 
     private bool IsPlayerCollider(Collider hitCollider)
@@ -642,6 +771,7 @@ public sealed class pl_Move : MonoBehaviour
     {
         return hitCollider != null &&
                (hitCollider.CompareTag(GroundTag) ||
+                hitCollider.GetComponentInParent<BombRailPlatform>() != null ||
                 hitCollider.GetComponentInParent<
                     SuperFinalFuse.BombThrowing.Mechanisms.BombJumpPad>() != null ||
                 hitCollider.GetComponentInParent<
@@ -740,7 +870,8 @@ public sealed class pl_Move : MonoBehaviour
             decelerationTime <= 0f ||
             maxTurnSpeed < 0f ||
             playerHeight <= 0f ||
-            groundSnapDistance < 0f ||
+            centerGroundSnapDistance < 0f ||
+            auxiliaryGroundSnapDistance < 0f ||
             skin < 0f ||
             skin >= playerHeight / 2f ||
             stepOffset < 0f)

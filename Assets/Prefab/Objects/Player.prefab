@@ -191,6 +191,9 @@ GameObject:
   - component: {fileID: 1768237869101731269}
   - component: {fileID: 4904163505106710771}
   - component: {fileID: 5171812353863036520}
+  - component: {fileID: 7683661818742757841}
+  - component: {fileID: 1493924804594640390}
+  - component: {fileID: 6284017529318461024}
   m_Layer: 0
   m_Name: Player
   m_TagString: Player
@@ -372,6 +375,7 @@ MonoBehaviour:
   states:
   - {fileID: 11400000, guid: 61ce45eb2bcf42a9996e9cab041b92c0, type: 2}
   - {fileID: 11400000, guid: e76ca1a9522c4f8cb90b02e5c7e63808, type: 2}
+  - {fileID: 11400000, guid: 103833b9f53f40638e519b980c2f9c3a, type: 2}
   initialState: {fileID: 11400000, guid: 61ce45eb2bcf42a9996e9cab041b92c0, type: 2}
 --- !u!114 &1890467919304667735
 MonoBehaviour:
@@ -405,12 +409,12 @@ MonoBehaviour:
   bombPrefab: {fileID: 6973244640082355146, guid: 4b07bdc868af5f146866ffab25a61dd8, type: 3}
   throwOrigin: {fileID: 3597869446940564782}
   cameraTransform: {fileID: 0}
-  throwSpeed: 5
+  inputManager: {fileID: 475101219704549856}
+  throwSpeed: 8
   trajectory: 1
   angledThrowDegrees: 15.8
   fallbackThrowHeight: 3
   useCameraDirection: 0
-  keyboardThrowKey: 31
   maximumThrowLockDuration: 3
 --- !u!114 &1768237869101731269
 MonoBehaviour:
@@ -430,6 +434,7 @@ MonoBehaviour:
   - {fileID: 7639170213641006266}
   - {fileID: 1890467919304667735}
   - {fileID: 4292554052087549936}
+  - {fileID: 6284017529318461024}
   visualRoot: {fileID: 104739675346536824}
   knockedOutEuler: {x: 0, y: 0, z: 90}
   onKnockedOut:
@@ -468,3 +473,73 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   activeBuffs: []
+--- !u!114 &7683661818742757841
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8194552205266947397}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a1a7d07c39e14854abfd2099c79c5100, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  maximumHealth: 2
+  currentHealth: 2
+  normalBombBlastDamage: 1
+  ownBombBlastDamage: 2
+  onHealthChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  onDied:
+    m_PersistentCalls:
+      m_Calls: []
+  onFullHealthRestored:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!114 &1493924804594640390
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8194552205266947397}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bba1867b0c5ff74b8d3f885cef77d60, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  initialCheckpoint: {fileID: 0}
+  playerAnimator: {fileID: 0}
+  onCheckpointSaved:
+    m_PersistentCalls:
+      m_Calls: []
+  onCheckpointRestored:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!114 &6284017529318461024
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8194552205266947397}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f2a1b8c3d4e5467f8a9012b3c4d5e6f7, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  playerMovement: {fileID: 7639170213641006266}
+  playerInteraction: {fileID: 1890467919304667735}
+  stateManager: {fileID: 8514364833118685906}
+  knockedBackPlayerState: {fileID: 11400000, guid: 103833b9f53f40638e519b980c2f9c3a, type: 2}
+  playerCollider: {fileID: 7820222200135427694}
+  playerHealth: {fileID: 7683661818742757841}
+  wallMask:
+    serializedVersion: 2
+    m_Bits: 64
+  movableMask:
+    serializedVersion: 2
+    m_Bits: 128
+  collisionSkin: 0.02

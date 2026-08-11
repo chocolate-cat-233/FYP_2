@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 [DisallowMultipleComponent]
@@ -8,8 +9,16 @@ public sealed class CameraRange : MonoBehaviour
     [SerializeField] private float targetRotationX;
     [SerializeField] private float targetRotationY;
 
+    [Header("Camera Offset")]
+    [SerializeField] private bool modifyOffset;
+    [Tooltip("Target offset in Cinemachine camera-local space.")]
+    [SerializeField] private Vector3 targetOffset;
+
     [Header("Player Detection")]
     [SerializeField] private string playerTag = "Player";
+
+    private readonly HashSet<Collider> playerCollidersInside =
+        new HashSet<Collider>();
 
     private void OnEnable()
     {
@@ -26,7 +35,49 @@ public sealed class CameraRange : MonoBehaviour
             return;
         }
 
+        playerCollidersInside.Add(other);
         cameraController.RotateTo(targetRotationX, targetRotationY);
+
+        if (modifyOffset)
+        {
+            cameraController.OffsetTo(targetOffset);
+        }
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        if (other != null)
+        {
+            playerCollidersInside.Remove(other);
+        }
+    }
+
+    private void OnDisable()
+    {
+        playerCollidersInside.Clear();
+    }
+
+    public void SetTargetRotationY(float value)
+    {
+        if (float.IsNaN(value) || float.IsInfinity(value))
+        {
+            Debug.LogWarning(
+                $"{nameof(CameraRange)} on '{name}' ignored a non-finite " +
+                "Target Rotation Y value.",
+                this);
+            return;
+        }
+
+        targetRotationY = value;
+        playerCollidersInside.RemoveWhere(
+            collider => collider == null ||
+                        !collider.enabled ||
+                        !collider.gameObject.activeInHierarchy);
+
+        if (isActiveAndEnabled && playerCollidersInside.Count > 0)
+        {
+            cameraController.RotateTo(targetRotationX, targetRotationY);
+        }
     }
 
     private bool IsPlayer(Collider other)
@@ -76,7 +127,23 @@ public sealed class CameraRange : MonoBehaviour
             isValid = false;
         }
 
+        if (modifyOffset && !IsFinite(targetOffset))
+        {
+            Debug.LogError(
+                $"{nameof(CameraRange)} on '{name}' requires a finite " +
+                "Target Offset when Modify Offset is enabled.",
+                this);
+            isValid = false;
+        }
+
         return isValid;
+    }
+
+    private static bool IsFinite(Vector3 value)
+    {
+        return !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&
+               !float.IsNaN(value.y) && !float.IsInfinity(value.y) &&
+               !float.IsNaN(value.z) && !float.IsInfinity(value.z);
     }
 
     private bool HasTriggerCollider()
