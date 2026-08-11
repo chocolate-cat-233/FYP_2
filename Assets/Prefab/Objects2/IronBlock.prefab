@@ -127,6 +127,8 @@ MonoBehaviour:
     m_Bits: 64
   collisionSkin: 0.02
   minimumIronCenterDistance: 1
+  hitEffectPrefab: {fileID: 3647516514009977965, guid: cf42c359abe0ca1429cbc65c71cefddd, type: 3}
+  hitEffectLifetime: 2
   onMoveStarted:
     m_PersistentCalls:
       m_Calls: []
