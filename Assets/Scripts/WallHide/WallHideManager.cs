@@ -28,15 +28,15 @@ namespace SuperFinalFuse.WallHide
         [Tooltip("Layers whose renderers may be hidden when they block the target. Default ~0 hides everything between camera and target; narrow the mask or use WallHideIgnore to exclude.")]
         [SerializeField] private LayerMask occlusionMask = ~0;
         [Tooltip("Sphere-cast radius. About the player capsule radius so the silhouette is covered instead of a single thin line.")]
-        [Min(0f)] [SerializeField] private float castRadius = 0.45f;
+        [Min(0f)][SerializeField] private float castRadius = 0.45f;
         [Tooltip("Extra pixels added to the target's screen-space circle radius.")]
-        [Min(0f)] [SerializeField] private float paddingPixels = 24f;
+        [Min(0f)][SerializeField] private float paddingPixels = 24f;
         [Tooltip("How fast the hole fades in/out, in strength units per second.")]
-        [Min(0f)] [SerializeField] private float fadeSpeed = 8f;
+        [Min(0f)][SerializeField] private float fadeSpeed = 8f;
         [Tooltip("Relative width of the halftone gradient band around the hole.")]
-        [Range(0.001f, 0.5f)] [SerializeField] private float hideSoftness = 0.03f;
+        [Range(0.001f, 1f)][SerializeField] private float hideSoftness = 0.03f;
         [Tooltip("Halftone cell size in pixels; the hole edge dissolves into dots of this size.")]
-        [Min(1f)] [SerializeField] private float halftoneCellSize = 4f;
+        [Min(1f)][SerializeField] private float halftoneCellSize = 4f;
 
         [Header("Fallback")]
         [Tooltip("Material swapped in for renderers whose shader does not read _WallHidePoint (e.g. URP/Lit). Usually a Custom/WallHideLit material.")]
@@ -298,8 +298,8 @@ namespace SuperFinalFuse.WallHide
             bool anyVisible = false;
 
             Bounds bounds = GetTargetBounds();
-            Vector3 center   = bounds.center;
-            Vector3 extents  = bounds.extents;
+            Vector3 center = bounds.center;
+            Vector3 extents = bounds.extents;
 
             for (int i = 0; i < 8; i++)
             {
@@ -330,7 +330,7 @@ namespace SuperFinalFuse.WallHide
                 if (_cachedColliders[i].isTrigger)
                     continue;
                 if (hasBounds) bounds.Encapsulate(_cachedColliders[i].bounds);
-                else           { bounds = _cachedColliders[i].bounds; hasBounds = true; }
+                else { bounds = _cachedColliders[i].bounds; hasBounds = true; }
             }
 
             if (!hasBounds)
@@ -340,7 +340,7 @@ namespace SuperFinalFuse.WallHide
                     if (!_cachedRenderers[i].enabled)
                         continue;
                     if (hasBounds) bounds.Encapsulate(_cachedRenderers[i].bounds);
-                    else           { bounds = _cachedRenderers[i].bounds; hasBounds = true; }
+                    else { bounds = _cachedRenderers[i].bounds; hasBounds = true; }
                 }
             }
 
@@ -455,14 +455,14 @@ namespace SuperFinalFuse.WallHide
         /// </summary>
         private void EnsureFieldInitializers()
         {
-            _hitBuffer         ??= new RaycastHit[64];
-            _hiddenRenderers   ??= new List<Renderer>(16);
-            _occluderFades     ??= new Dictionary<Renderer, float>();
-            _finishedFades     ??= new List<Renderer>(8);
-            _fadeUpdates       ??= new List<KeyValuePair<Renderer, float>>(8);
-            _restoreList       ??= new List<Renderer>(8);
-            _swappedOriginals  ??= new Dictionary<Renderer, Material[]>();
-            _propertyBlock     ??= new MaterialPropertyBlock();
+            _hitBuffer ??= new RaycastHit[64];
+            _hiddenRenderers ??= new List<Renderer>(16);
+            _occluderFades ??= new Dictionary<Renderer, float>();
+            _finishedFades ??= new List<Renderer>(8);
+            _fadeUpdates ??= new List<KeyValuePair<Renderer, float>>(8);
+            _restoreList ??= new List<Renderer>(8);
+            _swappedOriginals ??= new Dictionary<Renderer, Material[]>();
+            _propertyBlock ??= new MaterialPropertyBlock();
         }
 
         private void CacheTargetComponents()
