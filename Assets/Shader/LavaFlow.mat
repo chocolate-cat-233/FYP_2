@@ -23,38 +23,48 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _FlowMapSide:
+        m_Texture: {fileID: 2800000, guid: 1203c7bf61908534eb14ec0683eceb25, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _FlowMapTop:
+        m_Texture: {fileID: 2800000, guid: 2ab94593e5a31c248bca82475bce3af5, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _LavaNoise:
-        m_Texture: {fileID: 11700000, guid: c4e231a960e481b46a9a59f48dbde786, type: 2}
-        m_Scale: {x: 2, y: 1}
+        m_Texture: {fileID: 11700000, guid: 5a33cc79bd63bd84ca0318d0361df4a9, type: 2}
+        m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _CoolRate: 1.5
-    - _CrackScale: 8
-    - _CrackThreshold: 0.72
-    - _DripReach: 0.8
-    - _DripSpeed: 0.6
-    - _DripThreshold: 0.68
-    - _EmissionStrength: 0
-    - _FingerAmount: 1
-    - _FingerEvolve: 1
-    - _FingerScale: 1.2
-    - _FlowSpeed: 0.7
+    - _CoolRate: 0.99
+    - _CrackScale: 13.1
+    - _CrackThreshold: 0.46
+    - _DripReach: 0.77
+    - _DripSpeed: 0.13
+    - _DripThreshold: 0.5
+    - _EmissionStrength: 0.1
+    - _FingerAmount: 0.94
+    - _FingerEvolve: 2.03
+    - _FingerScale: 1.58
+    - _FlowMapScale: 0.9
+    - _FlowSpeed: 0.02
     - _FrontBottom: 0
-    - _FrontCycleSpeed: 0.03
-    - _FrontSharpness: 6
-    - _FrontTop: 1
-    - _PlateScale: 0.7
-    - _StreakScale: 3.5
-    - _TopBlend: 0.25
-    - _TopCoolRate: 5
-    - _TopNoiseScale: 1.3
-    - _TopThreshold: 0.55
-    - _VeinWidth: 0.08
-    - _WarpAmount: 1
+    - _FrontCycleSpeed: 0.2
+    - _FrontSharpness: 0.1
+    - _FrontTop: 1.57
+    - _PlateScale: 0.4
+    - _PoolScale: 0.1
+    - _StreakScale: 0.5
+    - _TopBlend: 0.2
+    - _TopCoolRate: 1.3
+    - _TopNoiseScale: 0.63
+    - _TopThreshold: 0.5
+    - _VeinWidth: 0.136
+    - _WarpAmount: 3.27
     m_Colors:
-    - _CoreColor: {r: 1, g: 0.55, b: 0.1, a: 1}
-    - _CrustColor: {r: 0.07, g: 0.04, b: 0.03, a: 1}
-    - _HotColor: {r: 0.95, g: 0.25, b: 0.02, a: 1}
+    - _CoreColor: {r: 0.7484276, g: 0.54623103, b: 0.1106166, a: 1}
+    - _CrustColor: {r: 0, g: 0.018838804, b: 0.38431373, a: 1}
+    - _HotColor: {r: 0.8301887, g: 0.09137288, b: 0.16499333, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
