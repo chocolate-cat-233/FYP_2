@@ -56,7 +56,7 @@ Material:
     - _Cull: 2
     - _DstBlend: 0
     - _DstBlendAlpha: 0
-    - _NormalMultiply: 0
+    - _NormalMultiply: 1
     - _QueueControl: 0
     - _QueueOffset: 0
     - _ReceiveShadows: 1
