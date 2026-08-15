@@ -6,6 +6,12 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Scenes/StartScene.unity
+    guid: 28b4c27ab57c42049bf582c866b55f02
+  - enabled: 1
+    path: Assets/Scenes/bomb-main level/iron level _remake.unity
+    guid: aeb0439ef6e3f064898202f2f4417fcc
+  - enabled: 1
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
   m_configObjects:
