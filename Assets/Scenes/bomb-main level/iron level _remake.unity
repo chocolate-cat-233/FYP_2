@@ -72219,6 +72219,14 @@ PrefabInstance:
       propertyPath: auxiliaryGroundProbeRotation
       value: 135
       objectReference: {fileID: 0}
+    - target: {fileID: 7683661818742757841, guid: 9ae4004298a27d24b8a9b02f293d02a5, type: 3}
+      propertyPath: ownBombBlastDamage
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7683661818742757841, guid: 9ae4004298a27d24b8a9b02f293d02a5, type: 3}
+      propertyPath: normalBombBlastDamage
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8194552205266947397, guid: 9ae4004298a27d24b8a9b02f293d02a5, type: 3}
       propertyPath: m_Name
       value: Player
