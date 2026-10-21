@@ -48,6 +48,55 @@ Write-Output "Output: $env:CI_BUILD_OUTPUT"
             }
         }
 
+        stage('PlayMode Tests') {
+            steps {
+                bat '''
+@echo off
+if exist "TestResults\\CI-%BUILD_NUMBER%" (
+    echo ERROR: Test output already exists. Start a new build.
+    exit /b 1
+)
+mkdir "TestResults\\CI-%BUILD_NUMBER%"
+"%UNITY_EXE%" -batchmode -projectPath "%WORKSPACE%" -runTests -testPlatform PlayMode -assemblyNames Fyp.PlayModeTests -testResults "%WORKSPACE%\\TestResults\\CI-%BUILD_NUMBER%\\playmode.xml" -logFile "%WORKSPACE%\\unity-tests-%BUILD_NUMBER%.log"
+set "UNITY_EXIT_CODE=%ERRORLEVEL%"
+echo Unity test exit code: %UNITY_EXIT_CODE%
+exit /b %UNITY_EXIT_CODE%
+'''
+            }
+        }
+
+        stage('Verify Test Results') {
+            steps {
+                powershell '''
+$ErrorActionPreference = 'Stop'
+$reportPath = Join-Path $env:WORKSPACE "TestResults/CI-$env:BUILD_NUMBER/playmode.xml"
+if (!(Test-Path -LiteralPath $reportPath)) { throw 'Unity test report is missing.' }
+[xml]$report = Get-Content -LiteralPath $reportPath -Raw
+$root = $report.DocumentElement
+$cases = @($report.SelectNodes('//test-case'))
+$expected = @(
+    'InitialSaveDoesNotShowNotification',
+    'ActivationShowsNotification',
+    'NotificationHidesAfterTwoSeconds',
+    'NewCheckpointRestartsDisplayTimer',
+    'StayingInsideDoesNotRepeatNotification'
+)
+foreach ($name in $expected) {
+    $match = @($cases | Where-Object { $_.GetAttribute('name') -eq $name })
+    if ($match.Count -ne 1 -or $match[0].GetAttribute('result') -ne 'Passed') {
+        throw "Required test missing or not passed: $name"
+    }
+}
+if ($root.Name -ne 'test-run' -or $root.GetAttribute('result') -ne 'Passed' -or $cases.Count -eq 0) {
+    throw 'Unity test run did not pass.'
+}
+$notPassed = @($cases | Where-Object { $_.GetAttribute('result') -ne 'Passed' })
+if ($notPassed.Count -gt 0) { throw 'Test run contains failed, skipped or inconclusive tests.' }
+Write-Output "PlayMode quality gate passed: $($cases.Count) tests passed."
+'''
+            }
+        }
+
         stage('Build Windows64') {
             steps {
                 bat '''
@@ -82,6 +131,7 @@ Write-Output "Packaged complete Player directory: $zip"
     post {
         always {
             archiveArtifacts artifacts: "unity-build-${env.BUILD_NUMBER}.log", allowEmptyArchive: true
+            archiveArtifacts artifacts: "unity-tests-${env.BUILD_NUMBER}.log,TestResults/CI-${env.BUILD_NUMBER}/*.xml", allowEmptyArchive: true
         }
     }
 }

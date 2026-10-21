@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.Events;
 
@@ -7,6 +8,14 @@ namespace SuperFinalFuse.PlayerLife
     [DisallowMultipleComponent]
     public sealed class PlayerCheckpoint : MonoBehaviour
     {
+        public static event Action<PlayerCheckpoint> Activated;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetActivationListeners()
+        {
+            Activated = null;
+        }
+
         [Tooltip("Optional exact respawn pose. This object's Transform is used " +
                  "when empty.")]
         [SerializeField] private Transform respawnPoint;
@@ -123,6 +132,7 @@ namespace SuperFinalFuse.PlayerLife
                 : transform;
             manager.CaptureCheckpoint(point);
             activated = true;
+            Activated?.Invoke(this);
             if (logActivation)
             {
                 Debug.Log(

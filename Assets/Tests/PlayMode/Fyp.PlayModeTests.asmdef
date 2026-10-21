@@ -1,0 +1,8 @@
+{
+    "name": "Fyp.PlayModeTests",
+    "references": [],
+    "optionalUnityReferences": ["TestAssemblies"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "autoReferenced": false
+}
